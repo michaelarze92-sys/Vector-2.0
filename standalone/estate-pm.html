@@ -472,6 +472,7 @@
         <input type="date" id="qaDue" />
         <button type="submit" class="btn btn-accent" id="qaSubmit">Add</button>
       </form>
+      <button class="btn" id="globalNewProject" type="button">New project</button>
     </div>
     <div class="content" id="content">
       <!-- pages injected by JS -->
@@ -601,6 +602,8 @@
   function closeNav() { document.getElementById("nav").classList.remove("open"); document.getElementById("navBackdrop").classList.remove("show"); }
   document.getElementById("hamburgerBtn").innerHTML = ICON.menu;
   document.getElementById("hamburgerBtn").addEventListener("click", openNav);
+  document.getElementById("globalNewProject").innerHTML = ICON.plus + " New project";
+  document.getElementById("globalNewProject").addEventListener("click", () => openProjectModal(null));
   document.getElementById("navBackdrop").addEventListener("click", closeNav);
 
   /* ============================== QUICK ADD ============================== */
