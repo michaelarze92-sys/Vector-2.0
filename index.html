@@ -2393,6 +2393,84 @@
   }
   function countMatching(filterFn){ return issues.filter(filterFn).length; }
 
+  function findSiteDetailAnswer(text, site){
+    var lower = text.toLowerCase();
+
+    var sitesToSearch = site ? [site] : PROPERTY_ORDER;
+    var contactMatches = [];
+    sitesToSearch.forEach(function(s){
+      var data = getSiteDetail(s);
+      (data.contacts || []).forEach(function(c){
+        if(!c.name) return;
+        var nameWords = c.name.toLowerCase().split(/\s+/).filter(function(w){ return w.length > 1; });
+        if(nameWords.some(function(w){ return lower.indexOf(w) !== -1; })){
+          contactMatches.push({site: s, contact: c});
+        }
+      });
+    });
+    if(contactMatches.length === 1 && /phone|number|contact|call|email|mobile|reach/.test(lower)){
+      var cm = contactMatches[0].contact;
+      var bits = [];
+      if(cm.role) bits.push(cm.role);
+      if(cm.phone) bits.push("phone " + cm.phone);
+      if(cm.email) bits.push("email " + cm.email);
+      return cm.name + " (" + contactMatches[0].site + ")" + (bits.length ? " — " + bits.join(", ") : " — no phone or email on file") + ".";
+    }
+    if(contactMatches.length > 1 && /phone|number|contact|call|email|mobile|reach/.test(lower)){
+      return "Found more than one match: " + contactMatches.map(function(m){ return m.contact.name + " (" + m.site + ")"; }).join(", ") + ". Add the site name to narrow it down.";
+    }
+
+    if(!site) return null;
+    var d = getSiteDetail(site);
+
+    if(/sq\s*ft|square footage|square feet|floor area|how big/.test(lower)){
+      return d.sqft ? (site + " is " + d.sqft + ".") : ("No square footage on file for " + site + " — add it in the site's details.");
+    }
+    if(/landlord/.test(lower)){
+      return d.landlord ? ("Landlord for " + site + " is " + d.landlord + ".") : ("No landlord on file for " + site + ".");
+    }
+    if(/casino director/.test(lower)){
+      return d.casinoDirector ? ("Casino Director at " + site + " is " + d.casinoDirector + ".") : ("No Casino Director on file for " + site + ".");
+    }
+    if(/tenant|sub-?let/.test(lower)){
+      return d.tenants ? ("Tenants at " + site + ": " + d.tenants + ".") : ("No tenants on file for " + site + ".");
+    }
+    if(/fm contractor|which contractor|contractors used/.test(lower)){
+      return d.fmContractors ? ("FM contractors at " + site + ": " + d.fmContractors + ".") : ("No FM contractors on file for " + site + ".");
+    }
+    if(/licen[cs]e/.test(lower)){
+      return d.licenceRef ? ("Gaming licence ref for " + site + ": " + d.licenceRef + ".") : ("No licence reference on file for " + site + ".");
+    }
+    if(/what3words|w3w|\/\/\//.test(lower)){
+      var locs = d.locations || [];
+      if(!locs.length) return "No what3words locations saved for " + site + ".";
+      var labelMatch = locs.find(function(l){ return lower.indexOf(l.label.toLowerCase()) !== -1; });
+      if(labelMatch) return labelMatch.label + " at " + site + ": ///" + labelMatch.words + ".";
+      return site + " locations: " + locs.map(function(l){ return l.label + " (///" + l.words + ")"; }).join("; ") + ".";
+    }
+    if(/address|where is|located/.test(lower)){
+      return d.address ? (site + " address: " + d.address + ".") : ("No address on file for " + site + ".");
+    }
+    if(/contact|phone|number|email|mobile/.test(lower)){
+      var contacts = d.contacts || [];
+      if(!contacts.length) return "No contacts saved for " + site + ".";
+      return site + " contacts: " + contacts.map(function(c){
+        var bits = [c.role, c.phone, c.email].filter(Boolean).join(", ");
+        return c.name + (bits ? " (" + bits + ")" : "");
+      }).join("; ") + ".";
+    }
+    if(/compliance|fire risk|water hygiene|eicr|loler|gas safety|asbestos|due date/.test(lower)){
+      var items = d.compliance || [];
+      if(!items.length) return "No compliance items logged for " + site + ".";
+      return site + " compliance: " + items.map(function(c){
+        var dleft = daysUntil(c.due);
+        var status = c.due ? (dleft < 0 ? (Math.abs(dleft) + "d overdue") : (dleft + "d left")) : "no date set";
+        return c.type + " (" + status + ")";
+      }).join("; ") + ".";
+    }
+    return null;
+  }
+
   var CATEGORY_KEYWORDS = [
     [/\b(m&e|mechanical|electrical|plant|chiller|hvac|plumbing|boiler|ac unit|air con)\b/i, "M&E / Plant"],
     [/\b(fire|h&s|health\s*&?\s*safety|riddor|risk assessment|fra\b)\b/i, "Health & Safety"],
@@ -2504,6 +2582,12 @@
       return;
     }
 
+    var siteDetailAnswer = findSiteDetailAnswer(text, site);
+    if(siteDetailAnswer){
+      vectorSay(siteDetailAnswer, "vector");
+      return;
+    }
+
     if(/how many|count of|number of|what's overdue|whats overdue/.test(lower)){
       var wantCritical = /critical|\bred\b/.test(lower);
       var wantOverdue = /overdue/.test(lower);
@@ -2527,7 +2611,7 @@
     }
 
     if(/help|what can you do/.test(lower)){
-      vectorSay('Try: "log an issue at Mayfair about a leak", "how many critical issues", "how many overdue at Glasgow", "show me Park Lane", or ask about a specific job, e.g. "what\'s happening with the chiller".', "vector");
+      vectorSay('Try: "log an issue at Mayfair about a leak", "how many critical issues", "how many overdue at Glasgow", "show me Park Lane", ask about a specific job e.g. "what\'s happening with the chiller", or ask for site details e.g. "what\'s the sq ft of Mayfair", "who\'s the casino director at Glasgow", "John\'s phone number", "landlord for Park Lane".', "vector");
       return;
     }
 
