@@ -471,6 +471,27 @@
   }
   .profile-tab.active{ color:var(--ink); border-bottom-color:var(--accent); }
 
+  .cal-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .cal-title{ font-family:'Plex Cond',sans-serif; font-weight:600; font-size:1.1rem; min-width:160px; }
+  .cal-nav{ display:flex; gap:6px; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+  .cal-dow{ background:var(--surface-2); padding:7px 4px; text-align:center; font-family:'Plex Cond',sans-serif; font-weight:600; font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-dim); }
+  .cal-day{ background:var(--surface); min-height:74px; padding:6px; cursor:pointer; display:flex; flex-direction:column; gap:3px; }
+  .cal-day:hover{ background:var(--surface-2); }
+  .cal-day.other-month{ background:var(--bg); opacity:.5; }
+  .cal-day.today .cal-daynum{ background:var(--accent); color:var(--accent-ink); border-radius:50%; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; }
+  .cal-day.selected{ outline:2px solid var(--accent); outline-offset:-2px; }
+  .cal-daynum{ font-family:'Plex Mono',monospace; font-size:.76rem; color:var(--ink); }
+  .cal-dots{ display:flex; flex-wrap:wrap; gap:3px; }
+  .cal-dot{ width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+  .cal-more{ font-size:.62rem; color:var(--ink-dim); }
+  @media (max-width:640px){ .cal-day{ min-height:52px; padding:4px; } .cal-dow{ font-size:.58rem; } }
+  .cal-legend{ display:flex; gap:14px; flex-wrap:wrap; font-size:.74rem; color:var(--ink-dim); margin-bottom:14px; }
+  .cal-legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .cal-legend .cal-dot{ width:8px; height:8px; }
+  .cal-daypanel{ margin-top:18px; }
+  .cal-daypanel-title{ font-family:'Plex Cond',sans-serif; font-weight:600; font-size:.92rem; margin-bottom:10px; }
+
   .metrics-accordion{ display:flex; flex-direction:column; gap:8px; }
   .metric-section{ border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); overflow:hidden; }
   .metric-section-head{
@@ -554,6 +575,7 @@
     <div class="topbar-actions">
       <button class="btn btn-sm" id="sitesBtn">Sites</button>
       <button class="btn btn-sm" id="reportsBtn">Reports</button>
+      <button class="btn btn-sm" id="calendarBtn">Calendar</button>
       <div class="menu-wrap" id="menuWrap">
         <button class="icon-btn" id="menuBtn" title="Data &amp; export" aria-label="Data and export menu">⋮</button>
         <div class="menu" id="menu">
@@ -828,6 +850,17 @@
       <button class="modal-tab" id="tabImportBtn" data-rtab="import">Import CSV</button>
     </div>
     <div class="modal-body" id="reportsModalBody"></div>
+  </div>
+</div>
+
+<!-- Calendar: issue target dates + compliance due dates, month view -->
+<div class="modal-overlay full" id="calendarOverlay">
+  <div class="modal modal-full">
+    <div class="modal-head">
+      <h2>Calendar</h2>
+      <button class="icon-btn" id="calendarCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="calendarModalBody"></div>
   </div>
 </div>
 
@@ -1270,6 +1303,154 @@
       });
     });
   }
+
+  /* ---------------- calendar: issue target dates + compliance due dates ---------------- */
+
+  var calendarOverlay = document.getElementById("calendarOverlay");
+  var calendarViewDate = new Date();
+  var calendarSelectedDate = todayISO();
+
+  function collectCalendarItems(){
+    var items = [];
+    issues.forEach(function(i){
+      if(DONE_STATUSES.indexOf(i.status) === -1 && i.targetDate){
+        items.push({kind:"job", id:i.id, label:i.title, site:i.site, date:i.targetDate, band:severityBand(i), overdue:isOverdue(i)});
+      }
+    });
+    PROPERTY_ORDER.forEach(function(site){
+      var data = getSiteDetail(site);
+      (data.compliance || []).forEach(function(c){
+        if(c.due){
+          items.push({kind:"compliance", id:c.id, label:c.type, site:site, date:c.due, overdue: c.due < todayISO()});
+        }
+      });
+    });
+    return items;
+  }
+
+  function calDotColor(it){
+    if(it.overdue) return "var(--sev-red)";
+    if(it.kind === "compliance") return "var(--sev-yellow)";
+    return it.band === "red" ? "var(--sev-red)" : it.band === "yellow" ? "var(--sev-yellow)" : "var(--sev-green)";
+  }
+
+  function renderCalendarOverlay(){
+    var body = document.getElementById("calendarModalBody");
+    if(!body) return;
+    var year = calendarViewDate.getFullYear();
+    var month = calendarViewDate.getMonth();
+    var monthLabel = calendarViewDate.toLocaleDateString("en-GB", {month:"long", year:"numeric"});
+
+    var byDate = {};
+    collectCalendarItems().forEach(function(it){ (byDate[it.date] = byDate[it.date] || []).push(it); });
+
+    var firstOfMonth = new Date(year, month, 1);
+    var startOffset = (firstOfMonth.getDay() + 6) % 7; // Monday-first
+    var gridStart = new Date(year, month, 1 - startOffset);
+    var today = todayISO();
+
+    var html = '<div class="cal-head">'+
+      '<div class="cal-title">'+escapeHtml(monthLabel)+'</div>'+
+      '<div class="cal-nav">'+
+        '<button class="btn btn-sm" id="calPrevBtn">← Prev</button>'+
+        '<button class="btn btn-sm" id="calTodayBtn">Today</button>'+
+        '<button class="btn btn-sm" id="calNextBtn">Next →</button>'+
+      '</div>'+
+    '</div>';
+
+    html += '<div class="cal-legend">'+
+      '<span><span class="cal-dot" style="background:var(--sev-red);"></span> Overdue</span>'+
+      '<span><span class="cal-dot" style="background:var(--sev-yellow);"></span> Due soon / compliance</span>'+
+      '<span><span class="cal-dot" style="background:var(--sev-green);"></span> On track</span>'+
+    '</div>';
+
+    html += '<div class="cal-grid">';
+    ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(function(d){ html += '<div class="cal-dow">'+d+'</div>'; });
+
+    for(var i=0;i<42;i++){
+      var d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+      var iso = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+      var inMonth = d.getMonth() === month;
+      var dayItems = byDate[iso] || [];
+      var cls = "cal-day"+(inMonth?"":" other-month")+(iso===today?" today":"")+(iso===calendarSelectedDate?" selected":"");
+      html += '<div class="'+cls+'" data-date="'+iso+'">'+
+        '<span class="cal-daynum">'+d.getDate()+'</span>'+
+        '<div class="cal-dots">'+dayItems.slice(0,6).map(function(it){
+          return '<span class="cal-dot" style="background:'+calDotColor(it)+';" title="'+escapeHtml(it.label)+'"></span>';
+        }).join("")+
+        (dayItems.length>6 ? '<span class="cal-more">+'+(dayItems.length-6)+'</span>' : '')+
+        '</div>'+
+      '</div>';
+    }
+    html += '</div>';
+    html += '<div class="cal-daypanel" id="calDayPanel"></div>';
+
+    body.innerHTML = html;
+
+    document.getElementById("calPrevBtn").addEventListener("click", function(){
+      calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth()-1, 1);
+      renderCalendarOverlay();
+    });
+    document.getElementById("calNextBtn").addEventListener("click", function(){
+      calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth()+1, 1);
+      renderCalendarOverlay();
+    });
+    document.getElementById("calTodayBtn").addEventListener("click", function(){
+      calendarViewDate = new Date();
+      calendarSelectedDate = todayISO();
+      renderCalendarOverlay();
+    });
+    Array.prototype.forEach.call(body.querySelectorAll(".cal-day"), function(cell){
+      cell.addEventListener("click", function(){
+        calendarSelectedDate = cell.getAttribute("data-date");
+        renderCalendarOverlay();
+      });
+    });
+
+    renderCalendarDayPanel(byDate);
+  }
+
+  function renderCalendarDayPanel(byDate){
+    var panel = document.getElementById("calDayPanel");
+    if(!panel) return;
+    var dateObj = new Date(calendarSelectedDate + "T00:00:00");
+    var label = dateObj.toLocaleDateString("en-GB", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+    var items = byDate[calendarSelectedDate] || [];
+    var html = '<div class="cal-daypanel-title">'+escapeHtml(label)+'</div>';
+    if(!items.length){
+      html += '<div class="bd-empty">Nothing due this day.</div>';
+    } else {
+      html += items.map(function(it){
+        var icon = it.kind === "compliance" ? "📋" : "🛠";
+        var badge = it.overdue ? '<span class="reminder-badge" style="background:var(--sev-red);color:#2B0A10;">Overdue</span>' : "";
+        return '<div class="reminder-row" data-kind="'+it.kind+'" data-id="'+it.id+'" data-site="'+escapeHtml(it.site)+'">'+
+          badge+
+          '<div class="reminder-main"><div class="reminder-title">'+icon+' '+escapeHtml(it.label)+'</div><div class="reminder-site">'+escapeHtml(it.site)+'</div></div>'+
+        '</div>';
+      }).join("");
+    }
+    panel.innerHTML = html;
+    Array.prototype.forEach.call(panel.querySelectorAll(".reminder-main"), function(el){
+      el.addEventListener("click", function(){
+        var row = el.closest(".reminder-row");
+        var kind = row.getAttribute("data-kind");
+        var id = row.getAttribute("data-id");
+        var site = row.getAttribute("data-site");
+        calendarOverlay.classList.remove("open");
+        if(kind === "job"){ openDetail(id); }
+        else { setSitesTab("site"); sitesOverlay.classList.add("open"); renderSiteProfile(site); }
+      });
+    });
+  }
+
+  document.getElementById("calendarBtn").addEventListener("click", function(){
+    calendarViewDate = new Date();
+    calendarSelectedDate = todayISO();
+    calendarOverlay.classList.add("open");
+    renderCalendarOverlay();
+  });
+  document.getElementById("calendarCloseBtn").addEventListener("click", function(){ calendarOverlay.classList.remove("open"); });
+  calendarOverlay.addEventListener("click", function(e){ if(e.target === calendarOverlay) calendarOverlay.classList.remove("open"); });
 
   function renderBreakdown(openIssues){
     function topCounts(field){
