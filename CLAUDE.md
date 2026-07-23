@@ -38,7 +38,19 @@ Qualifications held: NEBOSH General Certificate, IOSH membership, a recognised F
 > Update this section over time so state of play doesn't need re-explaining each session.
 
 **Live projects:**
-- Estates Ledger — a personal issue/risk log built as a Claude Artifact (crimson & gold, Metropolitan Gaming branded). Tracks issues by property (Mayfair, Park Lane, Leicester Square, Marble Arch, Manchester, Glasgow, Nottingham — a working set of 7; full portfolio is 10 venues incl. Egypt), RAG severity, attachments, email audit trail, Sites/Category comparison dashboards, site detail profiles (sq ft, landlord, tenants, contractors, casino director, contacts), and a local command assistant ("Vector"). Runs entirely client-side, no backend — data lives in-browser only. Ask Claude in this project to keep building/adjusting it.
+- Estates Ledger — a personal issue/risk log built as a Claude Artifact (crimson & gold, Metropolitan Gaming branded). Tracks issues by property (Mayfair, Park Lane, Leicester Square, Marble Arch, Manchester, Glasgow, Nottingham — a working set of 7; full portfolio is 10 venues incl. Egypt), RAG severity, attachments, email audit trail, Sites/Category comparison dashboards, site detail profiles (sq ft, landlord, tenants, contractors, casino director, contacts, compliance register, what3words key locations), and a local command assistant ("Vector"). Runs entirely client-side, no backend — data lives in-browser only. Ask Claude in this project to keep building/adjusting it.
+
+**Board SHE Report template** (real Metropolitan Gaming format — this is the report style the CEO liked, want to eventually generate this from the Ledger's data):
+1. Venue Compliance Snapshot — RAG score, FRA/WRA/EICR/LOLER status, EHS audit score, action owner, per venue
+2. Incident & Near-Miss Data — this month / last month / YTD, RIDDOR count, trend arrow
+3. Occupational Health: Staff Welfare & Hazards — MSD/ergonomic, air quality, EAP referrals, mandatory SHE training completion
+4. Public Safety & Licensee Obligations — Challenge 25, CCTV coverage, alcohol over-service, Gambling Act self-exclusion breaches, LCCP
+5. Environmental Performance — energy/water vs. target, AHU service status, waste/recycling %, refrigerant leaks
+6. Food Safety & Kitchen Compliance — EHO rating, HACCP, gas safety, extraction/suppression service, COSHH, pest control
+7. FM Contract Performance (Dalkia) — PPM completion rate, SLA closure rate, statutory actions on time, RAMS compliance, quoted vs. actual cost variance %
+8. Priorities & Board Actions Required — numbered list: action, owner, target date, whether board input/approval is needed
+
+Format is RAG-coloured throughout (GREEN/AMBER/RED against target), one row per venue per metric, action-owner named for accountability.
 
 **Upcoming tender deadlines:**
 - _(none logged yet)_
