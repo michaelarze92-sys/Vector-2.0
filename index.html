@@ -1,3 +1,4 @@
+<meta charset="UTF-8">
 <title>Estates Ledger</title>
 <style>
   @font-face{font-family:'Plex Sans';font-weight:400;font-style:normal;font-display:swap;
@@ -28,12 +29,12 @@
   }
   @media (prefers-color-scheme: light){
     :root{
-      --bg:#7A1620; --surface:#8C1B26; --surface-2:#9E2129; --surface-3:#AC2830;
-      --ink:#FBF3E6; --ink-dim:#EAD2BC; --line:#B23A42;
-      --accent:#E8C468; --accent-ink:#3A0F16; --accent-soft:rgba(232,196,104,.2);
-      --sev-red:#FF6B6B; --sev-yellow:#FFDE59; --sev-green:#5EDB8C;
-      --st-open:#BEE0F5; --st-progress:#9FE0D6; --st-awaiting:#E3D6F2; --st-resolved:#C7D3F0; --st-closed:#D8DCE2;
-      --shadow: 0 8px 24px -8px rgba(30,4,8,.4);
+      --bg:#F6F1E7; --surface:#FBF8F2; --surface-2:#F0E9DC; --surface-3:#E8DFCE;
+      --ink:#7A1620; --ink-dim:#9C5259; --line:#DFCBB8;
+      --accent:#A9821F; --accent-ink:#2B0A10; --accent-soft:rgba(169,130,31,.14);
+      --sev-red:#C43D3D; --sev-yellow:#B8860B; --sev-green:#2E7D46;
+      --st-open:#3E7EA6; --st-progress:#2E8C7F; --st-awaiting:#8069A8; --st-resolved:#5A6FA6; --st-closed:#71767D;
+      --shadow: 0 8px 24px -8px rgba(80,20,20,.18);
     }
   }
   :root[data-theme="dark"]{
@@ -45,12 +46,13 @@
     --shadow: 0 8px 24px -8px rgba(10,2,4,.55);
   }
   :root[data-theme="light"]{
-    --bg:#7A1620; --surface:#8C1B26; --surface-2:#9E2129; --surface-3:#AC2830;
-    --ink:#FBF3E6; --ink-dim:#EAD2BC; --line:#B23A42;
-    --accent:#E8C468; --accent-ink:#3A0F16; --accent-soft:rgba(232,196,104,.2);
-    --sev-critical:#FFC24D; --sev-high:#F4DDA0; --sev-medium:#EAD2BC; --sev-low:#B9D4B4;
-    --st-open:#BEE0F5; --st-progress:#9FE0D6; --st-awaiting:#E3D6F2; --st-resolved:#C7D3F0; --st-closed:#D8DCE2;
-    --shadow: 0 8px 24px -8px rgba(30,4,8,.4);
+    --bg:#F6F1E7; --surface:#FBF8F2; --surface-2:#F0E9DC; --surface-3:#E8DFCE;
+    --ink:#7A1620; --ink-dim:#9C5259; --line:#DFCBB8;
+    --accent:#A9821F; --accent-ink:#2B0A10; --accent-soft:rgba(169,130,31,.14);
+    --sev-critical:#C43D3D; --sev-high:#B8860B; --sev-medium:#9C7A1E; --sev-low:#2E7D46;
+    --sev-red:#C43D3D; --sev-yellow:#B8860B; --sev-green:#2E7D46;
+    --st-open:#3E7EA6; --st-progress:#2E8C7F; --st-awaiting:#8069A8; --st-resolved:#5A6FA6; --st-closed:#71767D;
+    --shadow: 0 8px 24px -8px rgba(80,20,20,.18);
   }
 
   *,*::before,*::after{box-sizing:border-box;}
@@ -519,6 +521,7 @@
     </div>
     <div class="topbar-actions">
       <button class="btn btn-sm" id="sitesBtn">Sites</button>
+      <button class="btn btn-sm" id="reportsBtn">Reports</button>
       <div class="menu-wrap" id="menuWrap">
         <button class="icon-btn" id="menuBtn" title="Data &amp; export" aria-label="Data and export menu">⋮</button>
         <div class="menu" id="menu">
@@ -781,6 +784,18 @@
       <button class="modal-tab" id="tabCategoryBtn" data-tab="category">By Category</button>
     </div>
     <div class="modal-body" id="sitesModalBody"></div>
+  </div>
+</div>
+
+<!-- Board report: cross-venue dashboard + CSV import -->
+<div class="modal-overlay full" id="reportsOverlay">
+  <div class="modal modal-full">
+    <div class="modal-head"><h2>Reports</h2><button class="icon-btn" id="reportsCloseBtn" aria-label="Close">✕</button></div>
+    <div class="modal-tabs" id="reportsModalTabs">
+      <button class="modal-tab" id="tabDashboardBtn" data-rtab="dashboard">Dashboard</button>
+      <button class="modal-tab" id="tabImportBtn" data-rtab="import">Import CSV</button>
+    </div>
+    <div class="modal-body" id="reportsModalBody"></div>
   </div>
 </div>
 
@@ -1557,93 +1572,130 @@
   var METRIC_SECTIONS = [
     {
       key:"complianceSnapshot", num:1, title:"Venue Compliance Snapshot",
+      dataOwner:"Dalkia",
       fields:[
-        {key:"ehsAuditScore", label:"EHS audit score (%)", type:"number"},
+        {key:"complianceScore", label:"Overall compliance score (%)", type:"text"},
+        {key:"fireRA", label:"Fire Risk Assessment", type:"select", options:["Current","Due this quarter","Overdue"]},
+        {key:"waterHygiene", label:"Water Hygiene (L8 / Legionella)", type:"select", options:["Current","Due this quarter","Overdue"]},
+        {key:"electricalCert", label:"Electrical Installation Cert (EICR)", type:"select", options:["Current","Due this quarter","Overdue"]},
+        {key:"ehsAuditScore", label:"EHS audit score (%)", type:"text"},
         {key:"overallStatus", label:"Overall status", type:"select", options:["Pass","Action required"]},
-        {key:"incidentsMTD", label:"Incidents (MTD)", type:"number"}
+        {key:"incidentsMTD", label:"Incidents (MTD)", type:"text"}
       ],
-      hint:"Fire RA / Water Hygiene / EICR / LOLER status already come from the Compliance register on the Overview tab — no need to re-enter here."
-    },
-    {
-      key:"incidents", num:2, title:"Incident & Near-Miss Data", repeating:true,
-      rowFields:[
-        {key:"category", label:"Incident category", placeholder:"e.g. Slip / Trip / Fall"},
-        {key:"thisMonth", label:"This month", type:"number"},
-        {key:"lastMonth", label:"Last month", type:"number"},
-        {key:"ytd", label:"YTD", type:"number"},
-        {key:"riddor", label:"RIDDOR", type:"number"},
-        {key:"nearMiss", label:"Near miss", type:"number"},
-        {key:"trend", label:"Trend", type:"select", options:["Improving","Stable","Monitor","Worsening"]}
-      ]
+      hint:"Lift inspection (LOLER) and document dates are tracked in the Compliance register on the Overview tab. This section is fed by the quarterly Dalkia data return, and can be filled in manually or via CSV import (Reports → Import)."
     },
     {
       key:"occHealth", num:3, title:"Occupational Health: Staff Welfare & Hazards",
+      dataOwner:"WorkNest / Venue Director",
       fields:[
-        {key:"smokeFreeCompliance", label:"Smoke-free compliance (%)", type:"number"},
+        {key:"smokeFreeCompliance", label:"Smoke-free compliance (%)", type:"text"},
         {key:"airQualityTest", label:"Air quality / ventilation test", type:"select", options:["Pass","Fail"]},
-        {key:"msdComplaints", label:"MSD / ergonomic complaints (MTD)", type:"number"},
+        {key:"msdComplaints", label:"MSD / ergonomic complaints (MTD)", type:"text"},
         {key:"antiFatigueMats", label:"Anti-fatigue mats & ergo equipment in place", type:"select", options:["Yes","No"]},
-        {key:"sheTrainingCompletion", label:"Mandatory SHE training completion (%)", type:"number"},
-        {key:"stressReferrals", label:"Stress / psychosocial referrals (EAP, MTD)", type:"number"},
-        {key:"riddorOccInjuriesYTD", label:"RIDDOR-reportable occupational injuries (YTD)", type:"number"}
+        {key:"sheTrainingCompletion", label:"Mandatory SHE training completion (%)", type:"text"},
+        {key:"stressReferrals", label:"Stress / psychosocial referrals (EAP, MTD)", type:"text"},
+        {key:"riddorOccInjuriesYTD", label:"RIDDOR-reportable occupational injuries (YTD)", type:"text"}
       ]
     },
     {
       key:"publicSafety", num:4, title:"Public Safety & Licensee Obligations",
+      dataOwner:"Venue Director",
       fields:[
-        {key:"challenge25", label:"Age verification compliance — Challenge 25 (%)", type:"number"},
-        {key:"cctvCoverage", label:"CCTV operational coverage (%)", type:"number"},
-        {key:"alcoholOverService", label:"Alcohol over-service incidents (MTD)", type:"number"},
-        {key:"securityStaffing", label:"Security staffing vs licensed level (%)", type:"number"},
-        {key:"selfExclusionBreaches", label:"Gambling Act self-exclusion breaches", type:"number"},
+        {key:"challenge25", label:"Age verification compliance — Challenge 25 (%)", type:"text"},
+        {key:"cctvCoverage", label:"CCTV operational coverage (%)", type:"text"},
+        {key:"alcoholOverService", label:"Alcohol over-service incidents (MTD)", type:"text"},
+        {key:"securityStaffing", label:"Security staffing vs licensed level (%)", type:"text"},
+        {key:"selfExclusionBreaches", label:"Gambling Act self-exclusion breaches", type:"text"},
         {key:"evacDrill", label:"Emergency evacuation drill (last 6 months)", type:"select", options:["Compliant","Overdue"]}
       ]
     },
     {
       key:"environmental", num:5, title:"Environmental Performance",
+      dataOwner:"Dalkia / Utility supplier / Waste contractor",
       fields:[
-        {key:"energyUse", label:"Energy use (kWh, MTD)", type:"number"},
-        {key:"waterConsumption", label:"Water consumption (m³, MTD)", type:"number"},
+        {key:"energyUse", label:"Energy use (kWh, MTD)", type:"text"},
+        {key:"waterConsumption", label:"Water consumption (m³, MTD)", type:"text"},
         {key:"ahuStatus", label:"Air handling unit service status", type:"select", options:["Current","Due","Overdue"]},
-        {key:"wasteToLandfill", label:"Waste to landfill (%)", type:"number"},
-        {key:"recyclingRate", label:"Recycling rate (%)", type:"number"},
-        {key:"refrigerantLeaks", label:"Refrigerant leak incidents", type:"number"},
-        {key:"envNotices", label:"Environmental notices / fines", type:"number"}
+        {key:"wasteToLandfill", label:"Waste to landfill (%)", type:"text"},
+        {key:"recyclingRate", label:"Recycling rate (%)", type:"text"},
+        {key:"refrigerantLeaks", label:"Refrigerant leak incidents", type:"text"},
+        {key:"envNotices", label:"Environmental notices / fines", type:"text"}
       ]
     },
     {
       key:"foodSafety", num:6, title:"Food Safety & Kitchen Compliance",
+      dataOwner:"Venue Director / Dalkia",
       fields:[
         {key:"ehoRating", label:"EHO inspection rating (last visit)", type:"select", options:["5 — Excellent","4 — Good","3 — Satisfactory","2 — Improvement required","1 — Major concerns"]},
         {key:"haccp", label:"HACCP system in place", type:"select", options:["Yes","No"]},
-        {key:"foodHygieneCertPct", label:"Food hygiene cert compliance — staff (%)", type:"number"},
+        {key:"foodHygieneCertPct", label:"Food hygiene cert compliance — staff (%)", type:"text"},
+        {key:"gasSafety", label:"Gas safety certificate (annual)", type:"select", options:["Yes","No"]},
         {key:"kitchenExtraction", label:"Kitchen extraction & suppression service", type:"select", options:["Yes","No"]},
         {key:"tempLogs", label:"Fridge / freezer temp monitoring logs", type:"select", options:["Yes","No"]},
         {key:"coshh", label:"COSHH assessments for kitchen chemicals", type:"select", options:["Yes","No"]},
         {key:"pestControl", label:"Pest control — active contract & qtr check", type:"select", options:["Yes","No"]}
       ]
-    },
-    {
-      key:"fmPerformance", num:7, title:"FM Contract Performance (Dalkia)",
-      fields:[
-        {key:"ppmTarget", label:"PPM completion rate — target (%)", type:"number"},
-        {key:"ppmActual", label:"PPM completion rate — this qtr (%)", type:"number"},
-        {key:"slaClosure", label:"Reactive works closed within SLA (%)", type:"number"},
-        {key:"statutoryOnTime", label:"Statutory compliance actions on time (%)", type:"number"},
-        {key:"ramsSubmitted", label:"Contractor RAMS submitted prior to works (%)", type:"number"}
-      ],
-      hint:"Quoted vs. actual cost variance is already tracked automatically from your issues — see the Overview tab."
-    },
-    {
-      key:"boardActions", num:8, title:"Priorities & Board Actions Required", repeating:true,
-      rowFields:[
-        {key:"action", label:"Action", placeholder:"What needs to happen"},
-        {key:"owner", label:"Owner"},
-        {key:"targetDate", label:"Target date", type:"date"},
-        {key:"boardInput", label:"Board input?", type:"select", options:["For noting","Board approval required","Strategic decision"]}
-      ]
     }
   ];
+
+  /* Incidents, FM Performance (Dalkia) and Board Actions are estate-wide (not per-venue) —
+     they're reported as a single estate table, not split by site. Managed in the Reports dashboard. */
+  var ESTATE_SECTIONS_INFO = {
+    incidents: {num:2, title:"Incident & Near-Miss Data", dataOwner:"WorkNest"},
+    fmPerformance: {num:7, title:"FM Contract Performance (Dalkia)", dataOwner:"Dalkia"},
+    boardActions: {num:8, title:"Priorities & Board Actions Required", dataOwner:"Michael — own judgement"}
+  };
+
+  var REQUEST_TEMPLATES = {
+    complianceSnapshot:
+"Subject: MG Board SHE Report — Quarterly Data Request\n\n"+
+"Hi [Name],\n\nPlease could you confirm current / overdue / due this quarter for each venue, plus the current EHS audit score:\n\n"+
+"- Fire Risk Assessment\n- Water Hygiene (L8 / Legionella)\n- Electrical Installation Cert (EICR)\n- Overall compliance score (%) and EHS audit score (%)\n\n"+
+"Could you send this back by [date]?\n\nThanks very much,\nMichael Arze | Property & SHE Manager | Metropolitan Gaming Group",
+    environmental:
+"Subject: MG Board SHE Report — Quarterly Environmental Data\n\n"+
+"Hi [Name],\n\nFor the quarterly Board SHE Report I need the following for [Venue Name] / all venues:\n\n"+
+"From Dalkia: AHU service status (Current / Due / Overdue), any refrigerant leak / F-Gas log entries this period.\n"+
+"From the utility supplier: energy use (kWh) and water consumption (m³) for the period.\n"+
+"From the waste contractor: waste to landfill (%) and recycling rate (%) for the period.\n\n"+
+"Could you send this back by [date]?\n\nThanks very much,\nMichael Arze | Property & SHE Manager | Metropolitan Gaming Group",
+    foodSafety:
+"Subject: Board SHE Report — Food Safety & Kitchen Compliance\n\n"+
+"Hi [Name],\n\nCould you confirm the following for [Venue Name]?\n\n"+
+"- EHO inspection rating (last visit) — check ratings.food.gov.uk if not recently inspected\n"+
+"- HACCP system in place? Yes/No\n- Food hygiene certification — any staff outstanding?\n"+
+"- Gas safety certificate current?\n- Kitchen extraction & suppression service current?\n"+
+"- Fridge / freezer temperature logs up to date?\n- COSHH assessments for kitchen chemicals in place?\n- Pest control quarterly inspection completed?\n\n"+
+"Could you send this back by [date]?\n\nThanks very much,\nMichael Arze | Property & SHE Manager | Metropolitan Gaming Group",
+    fmPerformance:
+"Subject: MG Board SHE Report — Quarterly Data Request\n\n"+
+"Hi [Name],\n\nPlease could you provide the following figures for this quarter and last quarter:\n\n"+
+"- PPM completion rate\n- Reactive works closed within SLA\n- Statutory compliance actions completed on time\n"+
+"- Contractor RAMS submitted prior to works\n- Quoted vs actual expenditure variance (%)\n\n"+
+"Could you send this back by [date — two weeks before report deadline]?\n\nThanks very much,\nMichael Arze | Property & SHE Manager | Metropolitan Gaming Group",
+    occHealth:
+"Subject: Board SHE Report — Occupational Health Data\n\n"+
+"Hi [Name],\n\nCould you supply the following for [Venue Name] / all venues, this month, last month and YTD where applicable:\n\n"+
+"- Air quality / ventilation test result (Pass/Fail)\n- MSD / ergonomic complaints (count)\n"+
+"- Anti-fatigue mats & ergo equipment in place at all dealing tables? Yes/No\n"+
+"- Mandatory SHE training completion (%)\n- EAP referrals (aggregate count only, no names)\n"+
+"- RIDDOR-reportable occupational injuries YTD\n\nCould you send this back by [date]?\n\n"+
+"Thanks very much,\nMichael Arze | Property & SHE Manager | Metropolitan Gaming Group",
+    publicSafety:
+"Subject: Board SHE Report — [Venue Name] Monthly Data\n\n"+
+"Hi [Name],\n\nCould you take five minutes to fill in the following for [Venue Name]?\n\n"+
+"- CCTV operational coverage this month (%) — note any cameras offline\n- Alcohol over-service incidents this month\n"+
+"- Security staffing vs licensed level — any shortfalls?\n- Self-exclusion breaches this period\n"+
+"- Emergency evacuation drill completed in last 6 months?\n\nPlease reply by [date].\n\n"+
+"Thanks,\nMichael Arze | Property & SHE Manager | Metropolitan Gaming Group",
+    incidents:
+"Subject: MG Board SHE Report — Quarterly Incident Data\n\n"+
+"Hi [Name],\n\nPlease could you supply incident data per category (this month, last month, YTD, RIDDOR, near-miss, trend):\n\n"+
+"- Slip / Trip / Fall (Staff & Guest)\n- Aggression / Violence from Patrons\n- Manual Handling / MSD\n"+
+"- Guest Welfare (intoxication/medical)\n- Biohazard / Body Fluid Exposure\n- Fire / Evacuation Drill\n\n"+
+"If you're able to supply this as a structured spreadsheet rather than a PDF report, that would be very helpful going forward.\n\n"+
+"Could you send this back by [date]?\n\nThanks very much,\nMichael Arze | Property & SHE Manager | Metropolitan Gaming Group"
+  };
 
   function getSectionData(site, key, repeating){
     var d = getSiteDetail(site);
@@ -1667,10 +1719,31 @@
     return section.repeating ? (data.rows||[]).length > 0 : Object.keys(data.values||{}).some(function(k){ return data.values[k]; });
   }
 
+  function orderedSectionRows(){
+    var rows = METRIC_SECTIONS.map(function(s){ return {key:s.key, num:s.num, title:s.title, estate:false}; });
+    Object.keys(ESTATE_SECTIONS_INFO).forEach(function(k){
+      var info = ESTATE_SECTIONS_INFO[k];
+      rows.push({key:k, num:info.num, title:info.title, estate:true});
+    });
+    rows.sort(function(a,b){ return a.num - b.num; });
+    return rows;
+  }
+
   function renderBoardReportPane(site){
-    var html = '<div class="chase-note">Fill these in as you audit each site — figures from Dalkia, venue directors or HR. Each section autosaves on its own and can hold its own supporting documents. Only one section opens at a time to keep this manageable.</div>';
+    var html = '<div class="chase-note">Fill these in as you audit each site — figures from Dalkia, venue directors or HR. Each section autosaves on its own and can hold its own supporting documents. Only one section opens at a time to keep this manageable. Sections 2, 7 &amp; 8 are estate-wide (not per-venue) — manage them from Reports → Dashboard.</div>';
     html += '<div class="metrics-accordion">';
-    METRIC_SECTIONS.forEach(function(section){
+    orderedSectionRows().forEach(function(row){
+      if(row.estate){
+        html += '<div class="metric-section" data-section="'+row.key+'">'+
+          '<button class="metric-section-head" data-toggle-section="'+row.key+'">'+
+            '<span class="metric-section-title">'+row.num+'. '+escapeHtml(row.title)+'</span>'+
+            '<span class="metric-section-badge">Estate-wide →</span>'+
+          '</button>'+
+          '<div class="metric-section-body" id="section-body-'+row.key+'" style="display:none;"></div>'+
+        '</div>';
+        return;
+      }
+      var section = METRIC_SECTIONS.find(function(s){ return s.key === row.key; });
       var data = getSectionData(site, section.key, section.repeating);
       html += '<div class="metric-section" data-section="'+section.key+'">'+
         '<button class="metric-section-head" data-toggle-section="'+section.key+'">'+
@@ -1720,6 +1793,12 @@
     if(!el) return;
     var data = getSectionData(site, section.key, section.repeating);
     var html = "";
+    if(section.dataOwner){
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">'+
+        '<span class="reminder-site">Data owner: '+escapeHtml(section.dataOwner)+'</span>'+
+        (REQUEST_TEMPLATES[section.key] ? '<button class="btn btn-sm" id="copyRequestBtn-'+section.key+'">Copy request email</button>' : '')+
+      '</div>';
+    }
     if(section.hint) html += '<div class="chase-note" style="margin-bottom:12px;">'+escapeHtml(section.hint)+'</div>';
 
     if(section.repeating){
@@ -1838,22 +1917,631 @@
       renderMetricRefs(site, section);
       showToast("Link saved.");
     });
+
+    var copyBtn = document.getElementById("copyRequestBtn-"+section.key);
+    if(copyBtn){
+      copyBtn.addEventListener("click", function(){
+        copyRequestEmail(section.key, site);
+      });
+    }
   }
+
+  function copyRequestEmail(sectionKey, site){
+    var tpl = REQUEST_TEMPLATES[sectionKey];
+    if(!tpl) return;
+    var text = tpl.replace(/\[Venue Name\]/g, site || "[Venue Name]");
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){ showToast("Request email copied."); }, function(){ showToast("Couldn't copy — select and copy manually."); });
+    } else {
+      showToast("Clipboard not available — select and copy manually.");
+    }
+  }
+
+  /* ---------------- estate-wide board metrics: CSV import + cross-venue dashboard ---------------- */
+
+  var VENUE_CSV_MAP_7 = ["Leicester Square","Mayfair","Park Lane","Marble Arch","Glasgow","Manchester","Nottingham"];
+  var VENUE_CSV_MAP_4 = ["Leicester Square","Mayfair","Park Lane","Marble Arch"];
+  var VENUE_SUFFIX_MAP = {empire:"Leicester Square", mayfair:"Mayfair", parklane:"Park Lane", sportsman:"Marble Arch", glasgow:"Glasgow", manchester:"Manchester", nottingham:"Nottingham"};
+
+  var CSV_INCIDENT_CATEGORIES = ["Slip / Trip / Fall (Staff & Guest)","Aggression / Violence from Patrons","Manual Handling / MSD","Guest Welfare (intoxication/medical)","Biohazard / Body Fluid Exposure","Fire / Evacuation Drill"];
+  var CSV_DALKIA_KPIS = [
+    {label:"PPM completion rate", target:">98%"},
+    {label:"Reactive works closed within SLA", target:">95%"},
+    {label:"Statutory compliance actions on time", target:"100%"},
+    {label:"Contractor RAMS submitted prior to works", target:"100%"},
+    {label:"Quoted vs. Actual Expenditure (Variance %)", target:"<5%"}
+  ];
+
+  var CSV_OCC_FIELD_ORDER = ["smokeFreeCompliance","airQualityTest","msdComplaints","antiFatigueMats","sheTrainingCompletion","stressReferrals","riddorOccInjuriesYTD"];
+  var CSV_PUB_FIELD_ORDER = ["challenge25","cctvCoverage","alcoholOverService","securityStaffing","selfExclusionBreaches","evacDrill"];
+  var CSV_ENV_FIELD_ORDER = ["energyUse","waterConsumption","ahuStatus","wasteToLandfill","recyclingRate","refrigerantLeaks","envNotices"];
+  var CSV_FOOD_FIELD_ORDER = ["ehoRating","haccp","foodHygieneCertPct","gasSafety","kitchenExtraction","tempLogs","coshh","pestControl"];
+
+  function csvMapCheck(v){
+    if(!v) return "";
+    v = v.trim();
+    if(v.charAt(0)==="✓" || /^current$/i.test(v)) return "Current";
+    if(v.charAt(0)==="✗" || /overdue/i.test(v)) return "Overdue";
+    if(/due/i.test(v)) return "Due this quarter";
+    return v;
+  }
+  function csvMapStatus(v){
+    if(!v) return "";
+    if(/pass/i.test(v)) return "Pass";
+    if(/action/i.test(v)) return "Action required";
+    return v;
+  }
+  function csvMapYesNo(v){
+    if(!v) return "";
+    v = v.trim();
+    if(v === "✓" || /^y(es)?$/i.test(v)) return "Yes";
+    if(v === "✗" || /^n(o)?$/i.test(v)) return "No";
+    return v;
+  }
+  function csvMapPassFail(v){
+    if(!v) return "";
+    if(/pass/i.test(v)) return "Pass";
+    if(/fail/i.test(v)) return "Fail";
+    return v;
+  }
+  function csvMapEvac(v){
+    if(!v) return "";
+    if(v === "✗" || /overdue/i.test(v)) return "Overdue";
+    if(v === "✓" || /compliant/i.test(v)) return "Compliant";
+    return v;
+  }
+  function csvMapAhu(v){
+    if(!v) return "";
+    if(/overdue/i.test(v)) return "Overdue";
+    if(/due/i.test(v)) return "Due";
+    if(v === "✓" || /current/i.test(v)) return "Current";
+    return v;
+  }
+  function csvMapEhoRating(v){
+    if(!v) return "";
+    v = v.trim();
+    var m = v.match(/^([1-5])/);
+    var map = {"5":"5 — Excellent","4":"4 — Good","3":"3 — Satisfactory","2":"2 — Improvement required","1":"1 — Major concerns"};
+    if(m && map[m[1]]) return map[m[1]];
+    return v;
+  }
+  function csvMapTrend(v){
+    if(!v) return "";
+    v = v.trim();
+    if(v.charAt(0)==="▼") return "Improving";
+    if(v.charAt(0)==="▲") return "Monitor";
+    if(v.charAt(0)==="→") return "Stable";
+    return v;
+  }
+  function csvMapBoardInput(v){
+    if(!v) return "For noting";
+    if(/approval/i.test(v)) return "Board approval required";
+    if(/strategic/i.test(v)) return "Strategic decision";
+    return "For noting";
+  }
+
+  var CSV_FIELD_TRANSFORMS = {
+    fireRA: csvMapCheck, waterHygiene: csvMapCheck, electricalCert: csvMapCheck,
+    overallStatus: csvMapStatus, airQualityTest: csvMapPassFail, antiFatigueMats: csvMapYesNo,
+    evacDrill: csvMapEvac, ahuStatus: csvMapAhu,
+    haccp: csvMapYesNo, gasSafety: csvMapYesNo, kitchenExtraction: csvMapYesNo, tempLogs: csvMapYesNo, coshh: csvMapYesNo, pestControl: csvMapYesNo,
+    ehoRating: csvMapEhoRating
+  };
+  function applyCsvFieldTransform(fieldKey, raw){
+    var f = CSV_FIELD_TRANSFORMS[fieldKey];
+    return f ? f(raw) : (raw || "");
+  }
+
+  function getEstateMetrics(){
+    var d;
+    try { var raw = localStorage.getItem("estatesLedger.estateMetrics.v1"); d = raw ? JSON.parse(raw) : {}; }
+    catch(e){ d = {}; }
+    d.incidents = d.incidents || {rows:[], refs:[]};
+    d.fmPerformance = d.fmPerformance || {rows:[], refs:[]};
+    d.boardActions = d.boardActions || {rows:[], refs:[]};
+    d.summary = d.summary || {};
+    d.reportPeriod = d.reportPeriod || null;
+    if(!d.incidents.rows.length){
+      d.incidents.rows = CSV_INCIDENT_CATEGORIES.map(function(cat){ return {id:uid(), category:cat, thisMonth:"", lastMonth:"", ytd:"", riddor:"", nearMiss:"", trend:""}; });
+    }
+    if(!d.fmPerformance.rows.length){
+      d.fmPerformance.rows = CSV_DALKIA_KPIS.map(function(k){ return {id:uid(), kpi:k.label, target:k.target, thisQ:"", lastQ:"", rag:""}; });
+    }
+    return d;
+  }
+  function saveEstateMetrics(d){
+    localStorage.setItem("estatesLedger.estateMetrics.v1", JSON.stringify(d));
+  }
+
+  function mergeSectionValues(site, sectionKey, vals){
+    var data = getSectionData(site, sectionKey, false);
+    data.values = data.values || {};
+    Object.keys(vals).forEach(function(k){
+      if(vals[k] !== "" && vals[k] !== undefined) data.values[k] = vals[k];
+    });
+    data.updatedAt = new Date().toISOString();
+    saveSectionData(site, sectionKey, data);
+  }
+
+  function parseCsvText(text){
+    var rows = []; var row = []; var field = ""; var inQuotes = false;
+    text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    for(var i=0; i<text.length; i++){
+      var c = text[i];
+      if(inQuotes){
+        if(c === '"'){ if(text[i+1] === '"'){ field += '"'; i++; } else inQuotes = false; }
+        else field += c;
+      } else {
+        if(c === '"') inQuotes = true;
+        else if(c === ','){ row.push(field); field = ""; }
+        else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ""; }
+        else field += c;
+      }
+    }
+    if(field.length || row.length){ row.push(field); rows.push(row); }
+    return rows.filter(function(r){ return !(r.length === 1 && r[0] === ""); });
+  }
+
+  function csvRowsToObjects(rows){
+    if(!rows.length) return [];
+    var headers = rows[0].map(function(h){ return h.trim(); });
+    var out = [];
+    for(var i=1; i<rows.length; i++){
+      var r = rows[i];
+      if(r.every(function(c){ return c.trim() === ""; })) continue;
+      var obj = {};
+      headers.forEach(function(h, idx){ obj[h] = (r[idx] !== undefined ? r[idx] : "").trim(); });
+      out.push(obj);
+    }
+    return out;
+  }
+
+  function importBoardCsv(rowObj){
+    var schemaSize = Object.prototype.hasOwnProperty.call(rowObj, "v5_score") ? 7 : 4;
+    var venueMap = schemaSize === 7 ? VENUE_CSV_MAP_7 : VENUE_CSV_MAP_4;
+
+    venueMap.forEach(function(site, idx){
+      var n = idx + 1;
+      mergeSectionValues(site, "complianceSnapshot", {
+        complianceScore: rowObj["v"+n+"_score"] || "",
+        fireRA: csvMapCheck(rowObj["v"+n+"_fire"]),
+        waterHygiene: csvMapCheck(rowObj["v"+n+"_water"]),
+        electricalCert: csvMapCheck(rowObj["v"+n+"_elec"]),
+        ehsAuditScore: rowObj["v"+n+"_ehs"] || "",
+        overallStatus: csvMapStatus(rowObj["v"+n+"_status"]),
+        incidentsMTD: rowObj["v"+n+"_incidents"] || ""
+      });
+    });
+
+    Object.keys(VENUE_SUFFIX_MAP).forEach(function(suffix){
+      if(schemaSize === 4 && ["glasgow","manchester","nottingham"].indexOf(suffix) !== -1) return;
+      var site = VENUE_SUFFIX_MAP[suffix];
+
+      function buildGridVals(prefix, fieldOrder){
+        var vals = {};
+        fieldOrder.forEach(function(fkey, i){
+          var col = prefix+(i+1)+"_"+suffix;
+          if(rowObj[col] === undefined) return;
+          vals[fkey] = applyCsvFieldTransform(fkey, rowObj[col]);
+        });
+        return vals;
+      }
+      var occVals = buildGridVals("occ", CSV_OCC_FIELD_ORDER);
+      if(Object.keys(occVals).length) mergeSectionValues(site, "occHealth", occVals);
+      var pubVals = buildGridVals("pub", CSV_PUB_FIELD_ORDER);
+      if(Object.keys(pubVals).length) mergeSectionValues(site, "publicSafety", pubVals);
+      var envVals = buildGridVals("env", CSV_ENV_FIELD_ORDER);
+      if(Object.keys(envVals).length) mergeSectionValues(site, "environmental", envVals);
+      var foodVals = buildGridVals("food", CSV_FOOD_FIELD_ORDER);
+      if(Object.keys(foodVals).length) mergeSectionValues(site, "foodSafety", foodVals);
+    });
+
+    var em = getEstateMetrics();
+    CSV_INCIDENT_CATEGORIES.forEach(function(cat, i){
+      var n = i + 1;
+      if(rowObj["inc"+n+"_this"] === undefined) return;
+      em.incidents.rows[i] = {
+        id: em.incidents.rows[i] ? em.incidents.rows[i].id : uid(),
+        category: cat,
+        thisMonth: rowObj["inc"+n+"_this"] || "", lastMonth: rowObj["inc"+n+"_last"] || "",
+        ytd: rowObj["inc"+n+"_ytd"] || "", riddor: rowObj["inc"+n+"_riddor"] || "",
+        nearMiss: rowObj["inc"+n+"_near"] || "", trend: csvMapTrend(rowObj["inc"+n+"_trend"])
+      };
+    });
+
+    CSV_DALKIA_KPIS.forEach(function(k, i){
+      var n = i + 1;
+      if(rowObj["fm"+n+"_this"] === undefined) return;
+      em.fmPerformance.rows[i] = {
+        id: em.fmPerformance.rows[i] ? em.fmPerformance.rows[i].id : uid(),
+        kpi: k.label, target: k.target,
+        thisQ: rowObj["fm"+n+"_this"] || "", lastQ: rowObj["fm"+n+"_last"] || "",
+        rag: (rowObj["fm"+n+"_rag"] || "").trim()
+      };
+    });
+
+    var actionRows = [];
+    for(var ai=1; ai<=8; ai++){
+      var desc = rowObj["action"+ai+"_desc"];
+      if(!desc) continue;
+      actionRows.push({
+        id: uid(), action: desc, owner: rowObj["action"+ai+"_owner"] || "",
+        targetDate: rowObj["action"+ai+"_date"] || "", boardInput: csvMapBoardInput(rowObj["action"+ai+"_input"])
+      });
+    }
+    if(actionRows.length) em.boardActions.rows = actionRows;
+
+    em.summary = {
+      overallStatus: rowObj.overall_status || "", compliantCount: rowObj.compliant_count || "", totalVenues: rowObj.total_venues || ""
+    };
+    em.reportPeriod = { month: rowObj.report_month || "", year: rowObj.report_year || "", importedAt: new Date().toISOString(), schemaSize: schemaSize };
+    saveEstateMetrics(em);
+  }
+
+  var BAD_SELECT_VALUES = ["Overdue","Action required","Fail","No"];
+  var GOOD_SELECT_VALUES = ["Current","Pass","Yes","Compliant"];
+  function cellRagClass(value){
+    if(!value) return "";
+    if(BAD_SELECT_VALUES.indexOf(value) !== -1) return "sev-red";
+    if(GOOD_SELECT_VALUES.indexOf(value) !== -1) return "sev-green";
+    return "";
+  }
+
+  function jumpToSiteSection(site, sectionKey){
+    reportsOverlay.classList.remove("open");
+    setSitesTab("site");
+    sitesOverlay.classList.add("open");
+    renderSiteProfile(site);
+    var boardTabBtn = document.querySelector('[data-ptab="board"]');
+    if(boardTabBtn) boardTabBtn.click();
+    var head = document.querySelector('[data-toggle-section="'+sectionKey+'"]');
+    if(head) head.click();
+  }
+
+  function renderVenueGridTable(section){
+    var html = '<div class="sites-table-wrap"><table class="sites-table"><thead><tr><th>'+escapeHtml(section.title)+'</th>';
+    PROPERTY_ORDER.forEach(function(site){ html += '<th>'+escapeHtml(site)+'</th>'; });
+    html += '</tr></thead><tbody>';
+    section.fields.forEach(function(f){
+      html += '<tr><td>'+escapeHtml(f.label)+'</td>';
+      PROPERTY_ORDER.forEach(function(site){
+        var data = getSectionData(site, section.key, false);
+        var val = (data.values && data.values[f.key]) || "";
+        var cls = cellRagClass(val);
+        html += '<td class="mono'+(cls?' '+cls:'')+'" data-jump-site="'+escapeHtml(site)+'" data-jump-section="'+section.key+'" style="cursor:pointer;" title="Click to edit in site profile">'+(val ? escapeHtml(val) : "—")+'</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function estateRefsHtml(sectionKey, data){
+    var refs = data.refs || [];
+    var listHtml = !refs.length ? '<div class="bd-empty">No documents attached.</div>' :
+      refs.slice().reverse().map(function(r){
+        return '<div class="ref-row"><div class="ref-main"><a href="'+escapeHtml(r.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(r.title)+'</a></div>'+
+          '<button class="note-del" data-del-estate-ref="'+r.id+'" data-section="'+sectionKey+'" aria-label="Delete link" title="Delete link">✕</button></div>';
+      }).join("");
+    return '<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px;">'+
+      '<span class="eyebrow">Supporting documents</span>'+
+      '<div class="subform open" style="margin-top:8px;">'+
+        '<div class="row2">'+
+          '<div class="field"><label>Title</label><input type="text" id="eref-title-'+sectionKey+'" placeholder="e.g. WorkNest quarterly return"></div>'+
+          '<div class="field"><label>Link (URL)</label><input type="text" id="eref-url-'+sectionKey+'" placeholder="https://…"></div>'+
+        '</div>'+
+        '<div class="subform-foot"><button class="btn btn-sm btn-primary" id="addEstateRefBtn-'+sectionKey+'">Save link</button></div>'+
+      '</div>'+
+      '<div id="estate-refs-'+sectionKey+'" style="margin-top:10px;">'+listHtml+'</div>'+
+    '</div>';
+  }
+  function wireEstateRefs(sectionKey){
+    var addBtn = document.getElementById("addEstateRefBtn-"+sectionKey);
+    if(addBtn){
+      addBtn.addEventListener("click", function(){
+        var title = document.getElementById("eref-title-"+sectionKey).value.trim();
+        var url = document.getElementById("eref-url-"+sectionKey).value.trim();
+        if(!title || !url){ showToast("Add a title and a link."); return; }
+        var em = getEstateMetrics();
+        em[sectionKey].refs = em[sectionKey].refs || [];
+        em[sectionKey].refs.push({id: uid(), title: title, url: url, addedAt: new Date().toISOString()});
+        saveEstateMetrics(em);
+        renderDashSectionBody(sectionKey);
+        showToast("Link saved.");
+      });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-del-estate-ref][data-section="'+sectionKey+'"]'), function(btn){
+      btn.addEventListener("click", function(){
+        var rid = btn.getAttribute("data-del-estate-ref");
+        confirmAction("Delete this link?", "This removes it from the section's documents.", function(){
+          var em = getEstateMetrics();
+          em[sectionKey].refs = (em[sectionKey].refs||[]).filter(function(r){ return r.id !== rid; });
+          saveEstateMetrics(em);
+          renderDashSectionBody(sectionKey);
+        });
+      });
+    });
+  }
+
+  function renderEstateIncidentsBody(){
+    var em = getEstateMetrics();
+    var html = '<div class="sites-table-wrap"><table class="sites-table"><thead><tr><th>Category</th><th>This month</th><th>Last month</th><th>YTD</th><th>RIDDOR</th><th>Near miss</th><th>Trend</th></tr></thead><tbody>';
+    em.incidents.rows.forEach(function(row, idx){
+      html += '<tr>'+
+        '<td>'+escapeHtml(row.category)+'</td>'+
+        '<td><input type="text" class="est-inc-input" data-idx="'+idx+'" data-f="thisMonth" value="'+escapeHtml(row.thisMonth||"")+'" style="width:56px;"></td>'+
+        '<td><input type="text" class="est-inc-input" data-idx="'+idx+'" data-f="lastMonth" value="'+escapeHtml(row.lastMonth||"")+'" style="width:56px;"></td>'+
+        '<td><input type="text" class="est-inc-input" data-idx="'+idx+'" data-f="ytd" value="'+escapeHtml(row.ytd||"")+'" style="width:56px;"></td>'+
+        '<td><input type="text" class="est-inc-input" data-idx="'+idx+'" data-f="riddor" value="'+escapeHtml(row.riddor||"")+'" style="width:48px;"></td>'+
+        '<td><input type="text" class="est-inc-input" data-idx="'+idx+'" data-f="nearMiss" value="'+escapeHtml(row.nearMiss||"")+'" style="width:48px;"></td>'+
+        '<td><select class="est-inc-input" data-idx="'+idx+'" data-f="trend"><option value="">—</option>'+
+          ["Improving","Stable","Monitor","Worsening"].map(function(o){ return '<option'+(row.trend===o?' selected':'')+'>'+o+'</option>'; }).join("")+
+        '</select></td>'+
+      '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<div style="margin:12px 0;"><button class="btn btn-sm btn-primary" id="saveEstateIncidentsBtn">Save incidents</button></div>';
+    html += estateRefsHtml("incidents", em.incidents);
+    return html;
+  }
+  function wireEstateIncidents(){
+    document.getElementById("saveEstateIncidentsBtn").addEventListener("click", function(){
+      var em = getEstateMetrics();
+      Array.prototype.forEach.call(document.querySelectorAll(".est-inc-input"), function(inp){
+        var idx = +inp.getAttribute("data-idx");
+        var f = inp.getAttribute("data-f");
+        em.incidents.rows[idx][f] = inp.value.trim();
+      });
+      saveEstateMetrics(em);
+      showToast("Incident data saved.");
+      renderDashSectionBody("incidents");
+    });
+    wireEstateRefs("incidents");
+  }
+
+  function renderEstateFmBody(){
+    var em = getEstateMetrics();
+    var html = '<div class="sites-table-wrap"><table class="sites-table"><thead><tr><th>KPI</th><th>Target</th><th>This quarter</th><th>Last quarter</th><th>RAG</th></tr></thead><tbody>';
+    em.fmPerformance.rows.forEach(function(row, idx){
+      html += '<tr>'+
+        '<td>'+escapeHtml(row.kpi)+'</td>'+
+        '<td class="mono">'+escapeHtml(row.target||"")+'</td>'+
+        '<td><input type="text" class="est-fm-input" data-idx="'+idx+'" data-f="thisQ" value="'+escapeHtml(row.thisQ||"")+'" style="width:70px;"></td>'+
+        '<td><input type="text" class="est-fm-input" data-idx="'+idx+'" data-f="lastQ" value="'+escapeHtml(row.lastQ||"")+'" style="width:70px;"></td>'+
+        '<td><select class="est-fm-input" data-idx="'+idx+'" data-f="rag"><option value="">—</option>'+
+          ["GREEN","AMBER","RED"].map(function(o){ return '<option'+(row.rag===o?' selected':'')+'>'+o+'</option>'; }).join("")+
+        '</select></td>'+
+      '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<div style="margin:12px 0;"><button class="btn btn-sm btn-primary" id="saveEstateFmBtn">Save FM performance</button></div>';
+    html += estateRefsHtml("fmPerformance", em.fmPerformance);
+    return html;
+  }
+  function wireEstateFm(){
+    document.getElementById("saveEstateFmBtn").addEventListener("click", function(){
+      var em = getEstateMetrics();
+      Array.prototype.forEach.call(document.querySelectorAll(".est-fm-input"), function(inp){
+        var idx = +inp.getAttribute("data-idx");
+        var f = inp.getAttribute("data-f");
+        em.fmPerformance.rows[idx][f] = inp.value;
+      });
+      saveEstateMetrics(em);
+      showToast("FM performance saved.");
+      renderDashSectionBody("fmPerformance");
+    });
+    wireEstateRefs("fmPerformance");
+  }
+
+  function renderEstateActionsBody(){
+    var em = getEstateMetrics();
+    var html = '<div class="subform open">'+
+      '<div class="field"><label>Action</label><input type="text" id="ea-action" placeholder="What needs to happen"></div>'+
+      '<div class="row2">'+
+        '<div class="field"><label>Owner</label><input type="text" id="ea-owner"></div>'+
+        '<div class="field"><label>Target date</label><input type="date" id="ea-date"></div>'+
+      '</div>'+
+      '<div class="field"><label>Board input?</label><select id="ea-input"><option value="">—</option>'+
+        ["For noting","Board approval required","Strategic decision"].map(function(o){ return '<option>'+o+'</option>'; }).join("")+
+      '</select></div>'+
+      '<div class="subform-foot"><button class="btn btn-sm btn-primary" id="addEstateActionBtn">Add action</button></div>'+
+    '</div>';
+    html += '<div id="estate-actions-list" style="margin-top:10px;">';
+    if(!em.boardActions.rows.length) html += '<div class="bd-empty">No board actions logged yet.</div>';
+    else html += em.boardActions.rows.slice().reverse().map(function(row){
+      var summary = [row.action, row.owner?("Owner: "+row.owner):null, row.targetDate?("Due: "+fmtDate(row.targetDate)):null, row.boardInput].filter(Boolean).join(" · ");
+      return '<div class="ref-row"><div class="ref-main">'+escapeHtml(summary)+'</div><button class="note-del" data-del-estate-action="'+row.id+'" aria-label="Delete action" title="Delete action">✕</button></div>';
+    }).join("");
+    html += '</div>';
+    html += estateRefsHtml("boardActions", em.boardActions);
+    return html;
+  }
+  function wireEstateActions(){
+    document.getElementById("addEstateActionBtn").addEventListener("click", function(){
+      var action = document.getElementById("ea-action").value.trim();
+      if(!action){ showToast("Add an action first."); return; }
+      var em = getEstateMetrics();
+      em.boardActions.rows.push({
+        id: uid(), action: action,
+        owner: document.getElementById("ea-owner").value.trim(),
+        targetDate: document.getElementById("ea-date").value,
+        boardInput: document.getElementById("ea-input").value
+      });
+      saveEstateMetrics(em);
+      renderDashSectionBody("boardActions");
+      showToast("Action logged.");
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-del-estate-action]"), function(btn){
+      btn.addEventListener("click", function(){
+        var rid = btn.getAttribute("data-del-estate-action");
+        confirmAction("Delete this action?", "This removes it from the board actions log.", function(){
+          var em = getEstateMetrics();
+          em.boardActions.rows = em.boardActions.rows.filter(function(r){ return r.id !== rid; });
+          saveEstateMetrics(em);
+          renderDashSectionBody("boardActions");
+        });
+      });
+    });
+    wireEstateRefs("boardActions");
+  }
+
+  function renderDashSectionBody(key){
+    var el = document.getElementById("dash-body-"+key);
+    if(!el) return;
+    if(key === "incidents"){ el.innerHTML = renderEstateIncidentsBody(); wireEstateIncidents(); }
+    else if(key === "fmPerformance"){ el.innerHTML = renderEstateFmBody(); wireEstateFm(); }
+    else if(key === "boardActions"){ el.innerHTML = renderEstateActionsBody(); wireEstateActions(); }
+    else {
+      var section = METRIC_SECTIONS.find(function(s){ return s.key === key; });
+      el.innerHTML = renderVenueGridTable(section);
+      Array.prototype.forEach.call(el.querySelectorAll("[data-jump-site]"), function(td){
+        td.addEventListener("click", function(){
+          jumpToSiteSection(td.getAttribute("data-jump-site"), td.getAttribute("data-jump-section"));
+        });
+      });
+    }
+  }
+
+  function wireDashboardAccordion(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-toggle-dash]"), function(btn){
+      btn.addEventListener("click", function(){
+        var key = btn.getAttribute("data-toggle-dash");
+        var body = document.getElementById("dash-body-"+key);
+        var isOpen = body.style.display !== "none";
+        Array.prototype.forEach.call(document.querySelectorAll("#dashAccordion .metric-section-body"), function(b){ b.style.display = "none"; });
+        Array.prototype.forEach.call(document.querySelectorAll("#dashAccordion .metric-section-head"), function(h){ h.classList.remove("open"); });
+        if(isOpen) return;
+        body.style.display = "block";
+        btn.classList.add("open");
+        renderDashSectionBody(key);
+      });
+    });
+  }
+
+  function renderReportsDashboardPane(){
+    var em = getEstateMetrics();
+    var periodLabel = em.reportPeriod && em.reportPeriod.month ? (em.reportPeriod.month+" "+em.reportPeriod.year) : "No data imported yet";
+    var importedLabel = em.reportPeriod && em.reportPeriod.importedAt ? ("Last CSV import "+fmtDate(em.reportPeriod.importedAt.slice(0,10))) : "";
+    var html = '<div class="chase-note">Reporting period: <strong>'+escapeHtml(periodLabel)+'</strong>'+(importedLabel?' · '+escapeHtml(importedLabel):'')+
+      '. Per-venue figures (sections 1, 3–6) come from each site\'s Board Report tab, or from CSV import — click any cell below to jump straight to that site. Sections 2, 7 &amp; 8 are estate-wide and edited here directly.</div>';
+    html += '<div class="metrics-accordion" id="dashAccordion">';
+    orderedSectionRows().forEach(function(row){
+      html += '<div class="metric-section" data-section="'+row.key+'">'+
+        '<button class="metric-section-head" data-toggle-dash="'+row.key+'">'+
+          '<span class="metric-section-title">'+row.num+'. '+escapeHtml(row.title)+'</span>'+
+          '<span class="metric-section-badge">'+(row.estate?'Estate-wide':'By venue')+'</span>'+
+        '</button>'+
+        '<div class="metric-section-body" id="dash-body-'+row.key+'" style="display:none;"></div>'+
+      '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  var pendingCsvRow = null;
+
+  function renderImportPane(){
+    var html = '<div class="chase-note">Upload the quarterly Board SHE Report CSV (matching the Dalkia / WorkNest / Venue Director data-return format — either the 4-venue or 7-venue schema). This updates every venue\'s Board Report figures plus the estate-wide Incidents, FM Performance and Board Actions tables in one go. You\'ll see a preview before anything is saved.</div>';
+    html += '<div class="subform open">'+
+      '<div class="field"><label>CSV file</label><input type="file" id="csvFileInput" accept=".csv,text/csv"></div>'+
+      '<div class="field"><label>…or paste CSV text</label><textarea id="csvPasteInput" rows="6" style="width:100%;font-family:\'Plex Mono\',monospace;font-size:.78rem;" placeholder="Paste the header row and one data row here"></textarea></div>'+
+      '<div class="subform-foot"><button class="btn btn-sm btn-primary" id="parseCsvBtn">Preview import</button></div>'+
+    '</div>';
+    html += '<div id="csvPreviewArea" style="margin-top:16px;"></div>';
+    return html;
+  }
+  function wireImportPane(){
+    document.getElementById("csvFileInput").addEventListener("change", function(e){
+      var file = e.target.files[0];
+      if(!file) return;
+      var reader = new FileReader();
+      reader.onload = function(ev){ document.getElementById("csvPasteInput").value = ev.target.result; };
+      reader.readAsText(file);
+    });
+    document.getElementById("parseCsvBtn").addEventListener("click", function(){
+      var text = document.getElementById("csvPasteInput").value;
+      if(!text.trim()){ showToast("Choose a file or paste CSV text first."); return; }
+      try {
+        var objs = csvRowsToObjects(parseCsvText(text));
+        if(!objs.length){ showToast("No data rows found in that CSV."); return; }
+        pendingCsvRow = objs[0];
+        renderCsvPreview(pendingCsvRow);
+      } catch(err){
+        showToast("Couldn't parse that CSV — check the format.");
+      }
+    });
+  }
+  function renderCsvPreview(rowObj){
+    var schemaSize = Object.prototype.hasOwnProperty.call(rowObj, "v5_score") ? 7 : 4;
+    var venueMap = schemaSize === 7 ? VENUE_CSV_MAP_7 : VENUE_CSV_MAP_4;
+    var period = (rowObj.report_month||"?") + " " + (rowObj.report_year||"?");
+    var html = '<div class="chase-note">Detected <strong>'+schemaSize+'-venue</strong> schema · Period: <strong>'+escapeHtml(period)+'</strong> · Venues: '+venueMap.map(function(v){return escapeHtml(v);}).join(", ")+'</div>';
+    html += '<div class="chase-note" style="border:1px solid var(--sev-yellow);">This will update Board Report figures for the venues above and replace the estate-wide Incidents, FM Performance and Board Actions tables with what\'s in this CSV. It will not touch venues not present in this file.</div>';
+    html += '<button class="btn btn-primary" id="confirmImportBtn">Apply import</button>';
+    var el = document.getElementById("csvPreviewArea");
+    el.innerHTML = html;
+    document.getElementById("confirmImportBtn").addEventListener("click", function(){
+      importBoardCsv(rowObj);
+      showToast("Board report data imported.");
+      pendingCsvRow = null;
+      document.getElementById("csvPasteInput").value = "";
+      el.innerHTML = '<div class="chase-note">Import applied. Switch to the Dashboard tab to review.</div>';
+    });
+  }
+
+  var reportsOverlay = document.getElementById("reportsOverlay");
+
+  function setReportsTab(tab, focusKey){
+    Array.prototype.forEach.call(document.querySelectorAll("#reportsModalTabs .modal-tab"), function(b){
+      b.classList.toggle("active", b.getAttribute("data-rtab") === tab);
+    });
+    var body = document.getElementById("reportsModalBody");
+    if(tab === "dashboard"){
+      body.innerHTML = renderReportsDashboardPane();
+      wireDashboardAccordion();
+      if(focusKey){
+        var head = document.querySelector('[data-toggle-dash="'+focusKey+'"]');
+        if(head) head.click();
+      }
+    } else {
+      body.innerHTML = renderImportPane();
+      wireImportPane();
+    }
+  }
+  function openReportsOverlay(tab, focusKey){
+    reportsOverlay.classList.add("open");
+    setReportsTab(tab || "dashboard", focusKey);
+  }
+  document.getElementById("reportsBtn").addEventListener("click", function(){ openReportsOverlay("dashboard"); });
+  document.getElementById("reportsCloseBtn").addEventListener("click", function(){ reportsOverlay.classList.remove("open"); });
+  reportsOverlay.addEventListener("click", function(e){ if(e.target === reportsOverlay) reportsOverlay.classList.remove("open"); });
+  Array.prototype.forEach.call(document.querySelectorAll("#reportsModalTabs .modal-tab"), function(btn){
+    btn.addEventListener("click", function(){ setReportsTab(btn.getAttribute("data-rtab")); });
+  });
 
   function wireMetricAccordion(site){
     Array.prototype.forEach.call(document.querySelectorAll("[data-toggle-section]"), function(btn){
       btn.addEventListener("click", function(){
         var key = btn.getAttribute("data-toggle-section");
-        var section = METRIC_SECTIONS.find(function(s){ return s.key === key; });
         var body = document.getElementById("section-body-"+key);
         var isOpen = body.style.display !== "none";
         Array.prototype.forEach.call(document.querySelectorAll(".metric-section-body"), function(b){ b.style.display = "none"; });
         Array.prototype.forEach.call(document.querySelectorAll(".metric-section-head"), function(h){ h.classList.remove("open"); });
-        if(!isOpen){
-          body.style.display = "block";
-          btn.classList.add("open");
-          renderMetricSectionBody(site, section);
+        if(isOpen) return;
+        body.style.display = "block";
+        btn.classList.add("open");
+        var estateInfo = ESTATE_SECTIONS_INFO[key];
+        if(estateInfo){
+          body.innerHTML = '<div class="chase-note" style="margin-bottom:12px;">This is an estate-wide figure (one table across all venues), not tracked per site. Data owner: '+escapeHtml(estateInfo.dataOwner)+'.</div>'+
+            '<button class="btn btn-sm btn-primary" id="goEstateBtn-'+key+'">Open in Reports Dashboard →</button>';
+          document.getElementById("goEstateBtn-"+key).addEventListener("click", function(){
+            sitesOverlay.classList.remove("open");
+            openReportsOverlay("dashboard", key);
+          });
+          return;
         }
+        var section = METRIC_SECTIONS.find(function(s){ return s.key === key; });
+        renderMetricSectionBody(site, section);
       });
     });
   }
