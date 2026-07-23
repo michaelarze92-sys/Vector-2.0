@@ -3378,9 +3378,15 @@
   /* ---------------- theme toggle ---------------- */
 
   var THEME_CYCLE = ["dark", "light", "hybrid", null];
+  var THEME_LABELS = {dark:"Dark", light:"Light", hybrid:"Hybrid (dark screen, light popups)"};
+  function themeToggleLabel(t){
+    return "Theme: " + (THEME_LABELS[t] || "System default") + " — tap to change";
+  }
   function applyTheme(t){
     if(THEME_CYCLE.indexOf(t) !== -1 && t !== null) document.documentElement.setAttribute("data-theme", t);
     else document.documentElement.removeAttribute("data-theme");
+    var btn = document.getElementById("themeToggleBtn");
+    if(btn) btn.textContent = themeToggleLabel(t);
   }
   applyTheme(load(THEME_KEY, null));
   document.getElementById("themeToggleBtn").addEventListener("click", function(){
@@ -3389,6 +3395,7 @@
     var next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
     applyTheme(next);
     save(THEME_KEY, next);
+    showToast("Theme: " + (THEME_LABELS[next] || "System default"));
   });
 
   /* ---------------- export / import ---------------- */
