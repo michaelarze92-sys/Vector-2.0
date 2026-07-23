@@ -4,6 +4,20 @@ Project & task management for Metropolitan Gaming Group's estate — task delega
 an ADHD-friendly Gantt chart, budget tracking, and casino-specific portfolio reporting.
 See `CLAUDE.md` for the full brief.
 
+This repo has two, independent tracks — pick based on what you need:
+
+| | `standalone/` | `server/` + `client/` |
+|---|---|---|
+| What it is | One self-contained HTML file | Node/Express API + SQLite + React |
+| Run it | Open the file in a browser | `npm install && npm run dev` (below) |
+| Access from your phone | Yes, via the published link | No — `localhost` only, on that machine |
+| Data storage | That browser's local storage | A real SQLite database |
+| Multi-device sync | Manual JSON export/import | N/A (single machine) — the path to real hosting later |
+| Status | Working: dashboard, Gantt, budget, calendar | Phase 0 scaffold only (see below) |
+
+The standalone version is documented in `standalone/README.md`. Everything below
+is the `server/` + `client/` track.
+
 ## Status: Phase 0 (scaffold)
 
 What exists right now is the foundation, not the app:
