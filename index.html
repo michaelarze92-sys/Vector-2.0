@@ -1517,6 +1517,31 @@
     });
   }
 
+  function renderIssueLinksList(issue){
+    var el = document.getElementById("issueLinksList");
+    if(!el) return;
+    var arr = issue.links || [];
+    if(!arr.length){ el.innerHTML = '<div class="bd-empty">No reference links saved for this issue yet.</div>'; return; }
+    el.innerHTML = arr.slice().reverse().map(function(r){
+      return '<div class="ref-row">'+
+        '<div class="ref-main"><a href="'+escapeHtml(r.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(r.title)+'</a>'+
+        (r.category ? ' <span class="tag">'+escapeHtml(r.category)+'</span>' : '')+
+        '</div>'+
+        '<button class="note-del" data-issue-link-del="'+r.id+'" aria-label="Delete link" title="Delete link">✕</button>'+
+      '</div>';
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll("[data-issue-link-del]"), function(btn){
+      btn.addEventListener("click", function(){
+        var lid = btn.getAttribute("data-issue-link-del");
+        confirmAction("Delete this link?", "This removes it from the issue's reference list.", function(){
+          issue.links = (issue.links||[]).filter(function(r){ return r.id !== lid; });
+          save(STORAGE_KEY, issues);
+          renderIssueLinksList(issue);
+        });
+      });
+    });
+  }
+
   function renderContactsList(site){
     var el = document.getElementById("contactsList");
     if(!el) return;
@@ -1837,6 +1862,18 @@
     html += '<div class="files-grid" id="filesGrid"><div class="bd-empty">Loading…</div></div>';
     html += '</div>';
 
+    html += '<div class="detail-section"><span class="eyebrow">Reference links</span>'+
+      '<div class="subform open" style="margin-top:8px;">'+
+        '<div class="row2">'+
+          '<div class="field"><label>Title</label><input type="text" id="il-title" placeholder="e.g. RAMS, quote, SharePoint folder"></div>'+
+          '<div class="field"><label>Category</label><input type="text" id="il-category" list="refCatList" placeholder="e.g. Quote"></div>'+
+        '</div>'+
+        '<div class="field"><label>Link (URL)</label><input type="text" id="il-url" placeholder="https://…"></div>'+
+        '<div class="subform-foot"><button class="btn btn-sm btn-primary" id="addIssueLinkBtn">Save link</button></div>'+
+      '</div>'+
+      '<div id="issueLinksList" style="margin-top:12px;"></div>'+
+    '</div>';
+
     html += '<div class="detail-section">';
     html += '<span class="eyebrow">Activity log</span>';
     html += '<div class="activity-actions" style="margin-top:8px;">';
@@ -1942,6 +1979,21 @@
     document.getElementById("attachZone").addEventListener("drop", function(e){
       e.preventDefault(); this.classList.remove("drag");
       handleFiles(issue.id, e.dataTransfer.files);
+    });
+
+    renderIssueLinksList(issue);
+    document.getElementById("addIssueLinkBtn").addEventListener("click", function(){
+      var title = document.getElementById("il-title").value.trim();
+      var url = document.getElementById("il-url").value.trim();
+      if(!title || !url){ showToast("Add a title and a link."); return; }
+      var category = document.getElementById("il-category").value.trim();
+      issue.links = issue.links || [];
+      issue.links.push({id: uid(), title: title, url: url, category: category, addedAt: new Date().toISOString()});
+      save(STORAGE_KEY, issues);
+      rememberRefCategory(category); renderRefCatList();
+      ["il-title","il-category","il-url"].forEach(function(fid){ document.getElementById(fid).value = ""; });
+      renderIssueLinksList(issue);
+      showToast("Link saved.");
     });
 
     formDrawer.classList.remove("open");
