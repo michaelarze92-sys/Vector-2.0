@@ -444,9 +444,19 @@
   .checklist-item input[type="text"] { flex: 1; width: auto; }
   .checklist-add { display: flex; gap: 8px; }
   .checklist-note {
-    width: 100%; margin: -4px 0 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink);
+    width: 100%; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink);
     border-radius: var(--radius-sm); padding: 7px 9px; font-size: 12.5px; font-family: inherit; min-height: 44px; resize: vertical;
   }
+  .checklist-meta { display: flex; gap: 4px; margin: -4px 0 6px 30px; font-size: 11px; color: var(--ink-muted); font-weight: 600; }
+  .checklist-meta-item { display: inline-flex; align-items: center; gap: 4px; }
+  .checklist-meta-item svg { flex: none; width: 11px; height: 11px; }
+  .checklist-details {
+    display: flex; flex-direction: column; gap: 8px; margin: -2px 0 10px 30px; padding: 10px; border-radius: var(--radius-sm);
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .checklist-details .field-row { grid-template-columns: 1fr 1fr; }
+  .checklist-details .field label { font-size: 10.5px; }
+  .checklist-details .field input { background: var(--surface); }
   .icon-x { flex: none; background: none; border: none; cursor: pointer; color: var(--ink-muted); padding: 4px; display: flex; }
   .icon-x.has-note { color: var(--accent); }
   .icon-x:hover { color: var(--st-blocked); }
@@ -611,6 +621,17 @@
   function isOverdue(t) { return t.dueDate && t.dueDate < todayISO() && t.status !== "Done"; }
   function isDueThisWeek(t) { if (!t.dueDate || t.status === "Done") return false; const diff = daysBetween(todayISO(), t.dueDate); return diff >= 0 && diff <= 7; }
 
+  function allDatedItems() {
+    const items = [];
+    state.tasks.forEach(t => {
+      items.push({ kind: "task", dueDate: t.dueDate, done: t.status === "Done", task: t, item: null });
+      (t.checklist || []).forEach(c => { if (c.dueDate) items.push({ kind: "subtask", dueDate: c.dueDate, done: c.done, task: t, item: c }); });
+    });
+    return items;
+  }
+  function itemOverdue(x) { return x.dueDate && x.dueDate < todayISO() && !x.done; }
+  function itemDueThisWeek(x) { if (!x.dueDate || x.done) return false; const diff = daysBetween(todayISO(), x.dueDate); return diff >= 0 && diff <= 7; }
+
   function projectTasks(id) { return state.tasks.filter(t => t.projectId === id); }
   function projectContacts(id) { return state.contacts.filter(c => c.projectId === id); }
   function projectQA(id) { return state.qaItems.filter(q => q.projectId === id); }
@@ -699,8 +720,9 @@
   /* ============================== DASHBOARD ============================== */
   function renderDashboard() {
     const tasks = state.tasks;
-    const overdue = tasks.filter(isOverdue).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-    const dueWeek = tasks.filter(t => isDueThisWeek(t) && !isOverdue(t)).sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+    const items = allDatedItems();
+    const overdue = items.filter(itemOverdue).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const dueWeek = items.filter(x => itemDueThisWeek(x) && !itemOverdue(x)).sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
     const openTasks = tasks.filter(t => t.status !== "Done").length;
     const inProgressProjects = state.projects.filter(p => p.status === "In Progress").length;
     const budgetAlerts = state.projects.map(p => ({ p, spend: projectSpend(p.id) }))
@@ -712,7 +734,7 @@
         <div><h1>What needs you today</h1><div class="desc">${fmtLong(todayISO())} — overdue and this week's deadlines, at a glance.</div></div>
       </div>
       <div class="stat-row">
-        <div class="stat-tile"><div class="label">Overdue</div><div class="value ${overdue.length ? "accent-bad" : ""}">${overdue.length}</div><div class="sub">tasks past due date</div></div>
+        <div class="stat-tile"><div class="label">Overdue</div><div class="value ${overdue.length ? "accent-bad" : ""}">${overdue.length}</div><div class="sub">tasks &amp; subtasks past due</div></div>
         <div class="stat-tile"><div class="label">Due this week</div><div class="value ${dueWeek.length ? "accent-warn" : ""}">${dueWeek.length}</div><div class="sub">next 7 days</div></div>
         <div class="stat-tile"><div class="label">Open tasks</div><div class="value">${openTasks}</div><div class="sub">across ${state.projects.length} project${state.projects.length === 1 ? "" : "s"}</div></div>
         <div class="stat-tile"><div class="label">Budget alerts</div><div class="value ${budgetAlerts.length ? "accent-bad" : "accent-good"}">${budgetAlerts.length}</div><div class="sub">projects ≥85% of budget</div></div>
@@ -720,12 +742,12 @@
 
       <div class="card">
         <div class="card-head"><h2>Overdue</h2>${overdue.length ? `<span class="g-count">${overdue.length}</span>` : ""}</div>
-        <div class="card-body">${overdue.length ? overdue.map(t => taskRowHtml(t, true)).join("") : emptyState("Nothing overdue — you're on top of it.")}</div>
+        <div class="card-body">${overdue.length ? overdue.map(x => datedItemRowHtml(x, true)).join("") : emptyState("Nothing overdue — you're on top of it.")}</div>
       </div>
 
       <div class="card">
         <div class="card-head"><h2>Due this week</h2>${dueWeek.length ? `<span class="g-count">${dueWeek.length}</span>` : ""}</div>
-        <div class="card-body">${dueWeek.length ? dueWeek.map(t => taskRowHtml(t, false)).join("") : emptyState("Nothing due in the next 7 days.")}</div>
+        <div class="card-body">${dueWeek.length ? dueWeek.map(x => datedItemRowHtml(x, false)).join("") : emptyState("Nothing due in the next 7 days.")}</div>
       </div>
 
       <div class="card">
@@ -756,6 +778,20 @@
       <span class="chip chip-${STATUS_CLASS[t.status]}">${STATUS_ICON[t.status]}</span>
       <div class="t-main"><div class="t-name">${escapeHtml(t.name)}</div><div class="t-meta">${escapeHtml(meta || "Unassigned")}${t.ownerName ? " · " + escapeHtml(t.ownerName) : ""}</div></div>
       <div class="t-due" style="color:${overdueStyle ? "var(--st-blocked)" : "var(--ink-secondary)"}">${fmtShort(t.dueDate)}</div>
+    </div>`;
+  }
+
+  function datedItemRowHtml(x, overdueStyle) {
+    if (x.kind === "task") return taskRowHtml(x.task, overdueStyle);
+    const t = x.task, c = x.item;
+    const proj = projectById(t.projectId);
+    const venue = venueById(t.venueId || (proj && proj.venueId));
+    const meta = [`Subtask of "${t.name}"`, venue ? venue.name : null].filter(Boolean).join(" · ");
+    const cls = c.done ? "done" : "notstarted";
+    return `<div class="task-row ${overdueStyle ? "overdue-row" : ""}" data-open-task="${t.id}">
+      <span class="chip chip-${cls}">${STATUS_ICON[c.done ? "Done" : "Not Started"]}</span>
+      <div class="t-main"><div class="t-name">↳ ${escapeHtml(c.label)}</div><div class="t-meta">${escapeHtml(meta)}${c.assigneeName ? " · " + escapeHtml(c.assigneeName) : ""}</div></div>
+      <div class="t-due" style="color:${overdueStyle ? "var(--st-blocked)" : "var(--ink-secondary)"}">${fmtShort(c.dueDate)}</div>
     </div>`;
   }
 
@@ -1340,23 +1376,34 @@
     const cells = [];
     for (let i = 0; i < 42; i++) { const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); cells.push(d); }
     const monthLabel = first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    const tasksByDay = {};
-    state.tasks.forEach(t => { if (t.dueDate) (tasksByDay[t.dueDate] = tasksByDay[t.dueDate] || []).push(t); });
+    const itemsByDay = {};
+    state.tasks.forEach(t => {
+      if (t.dueDate) (itemsByDay[t.dueDate] = itemsByDay[t.dueDate] || []).push({ kind: "task", task: t });
+      (t.checklist || []).forEach(c => {
+        if (c.dueDate) (itemsByDay[c.dueDate] = itemsByDay[c.dueDate] || []).push({ kind: "subtask", task: t, item: c });
+      });
+    });
 
     const dow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const cellsHtml = cells.map(d => {
       const iso = toISO(d); const out = d.getMonth() !== m - 1; const isToday = iso === todayISO();
-      const dayTasks = tasksByDay[iso] || [];
+      const dayItems = itemsByDay[iso] || [];
       return `<div class="cal-cell ${out ? "out" : ""} ${isToday ? "today" : ""}">
         <div class="cal-daynum">${d.getDate()}</div>
-        ${dayTasks.slice(0, 3).map(t => `<div class="cal-chip chip-${STATUS_CLASS[t.status]}" style="background:var(--st-${STATUS_CLASS[t.status]}-soft);color:var(--st-${STATUS_CLASS[t.status]})" data-open-task="${t.id}">${escapeHtml(t.name)}</div>`).join("")}
-        ${dayTasks.length > 3 ? `<div class="cal-chip" style="color:var(--ink-muted)">+${dayTasks.length - 3} more</div>` : ""}
+        ${dayItems.slice(0, 3).map(x => {
+          if (x.kind === "task") {
+            return `<div class="cal-chip" style="background:var(--st-${STATUS_CLASS[x.task.status]}-soft);color:var(--st-${STATUS_CLASS[x.task.status]})" data-open-task="${x.task.id}">${escapeHtml(x.task.name)}</div>`;
+          }
+          const cls = x.item.done ? "done" : "notstarted";
+          return `<div class="cal-chip" style="background:var(--st-${cls}-soft);color:var(--st-${cls})" data-open-task="${x.task.id}" title="Subtask of: ${escapeHtml(x.task.name)}">↳ ${escapeHtml(x.item.label)}</div>`;
+        }).join("")}
+        ${dayItems.length > 3 ? `<div class="cal-chip" style="color:var(--ink-muted)">+${dayItems.length - 3} more</div>` : ""}
       </div>`;
     }).join("");
 
     return `
       <div class="page-head">
-        <div><h1>Calendar</h1><div class="desc">Tasks by due date.</div></div>
+        <div><h1>Calendar</h1><div class="desc">Tasks and subtasks by due date — click one to open its task.</div></div>
         <div class="page-actions">
           <button class="btn btn-sm" data-cal-nav="-1">‹ Prev</button>
           <strong style="min-width:140px;text-align:center;display:inline-block">${monthLabel}</strong>
@@ -1545,36 +1592,51 @@
       </div>
     `;
 
-    const openNotes = new Set();
+    const openDetails = new Set();
     function renderChecklist() {
       const el = dlg.querySelector("#mChecklist");
       el.innerHTML = draft.checklist.map((c, i) => {
-        const hasNote = !!(c.notes && c.notes.trim());
-        const isOpen = openNotes.has(c.id);
+        const hasDetails = !!((c.notes && c.notes.trim()) || c.dueDate || (c.assigneeName && c.assigneeName.trim()));
+        const isOpen = openDetails.has(c.id);
+        const metaBits = [];
+        if (c.dueDate) metaBits.push(`<span class="checklist-meta-item">${ICON.calendar}${fmtShort(c.dueDate)}</span>`);
+        if (c.assigneeName && c.assigneeName.trim()) metaBits.push(`<span class="checklist-meta-item">${ICON.contact}${escapeHtml(c.assigneeName)}</span>`);
         return `
         <div class="checklist-item">
           <input type="checkbox" data-ci="${i}" ${c.done ? "checked" : ""} />
           <input type="text" data-cl="${i}" value="${escapeHtml(c.label)}" placeholder="Subtask" />
-          <button type="button" class="icon-x ${hasNote ? "has-note" : ""}" data-cn="${c.id}" title="${hasNote ? "Edit note" : "Add note"}">${ICON.note}</button>
+          <button type="button" class="icon-x ${hasDetails ? "has-note" : ""}" data-cn="${c.id}" title="${isOpen ? "Hide details" : "Due date, delegate, notes"}">${ICON.note}</button>
           <button type="button" class="icon-x" data-cx="${i}">${ICON.x}</button>
         </div>
-        ${isOpen ? `<textarea class="checklist-note" data-cnt="${i}" placeholder="Details for this subtask — e.g. from a call or transcript">${escapeHtml(c.notes || "")}</textarea>` : ""}`;
+        ${metaBits.length && !isOpen ? `<div class="checklist-meta">${metaBits.join(" &nbsp;·&nbsp; ")}</div>` : ""}
+        ${isOpen ? `
+        <div class="checklist-details">
+          <div class="field-row">
+            <div class="field"><label>Due date</label><input type="date" data-cd="${i}" value="${c.dueDate || ""}" /></div>
+            <div class="field"><label>Delegate to</label><input type="text" data-can="${i}" value="${escapeHtml(c.assigneeName || "")}" placeholder="Name" /></div>
+          </div>
+          <div class="field"><label>Delegate email</label><input type="text" data-cae="${i}" value="${escapeHtml(c.assigneeEmail || "")}" placeholder="Email" /></div>
+          <div class="field"><label>Notes</label><textarea class="checklist-note" data-cnt="${i}" placeholder="Details for this subtask — e.g. from a call or transcript">${escapeHtml(c.notes || "")}</textarea></div>
+        </div>` : ""}`;
       }).join("") || `<div style="font-size:12px;color:var(--ink-muted);padding:4px 0">No subtasks yet.</div>`;
       el.querySelectorAll("[data-ci]").forEach(c => c.addEventListener("change", () => { draft.checklist[+c.dataset.ci].done = c.checked; }));
       el.querySelectorAll("[data-cl]").forEach(c => c.addEventListener("input", () => { draft.checklist[+c.dataset.cl].label = c.value; }));
       el.querySelectorAll("[data-cx]").forEach(c => c.addEventListener("click", () => { draft.checklist.splice(+c.dataset.cx, 1); renderChecklist(); }));
       el.querySelectorAll("[data-cn]").forEach(c => c.addEventListener("click", () => {
         const id = c.dataset.cn;
-        if (openNotes.has(id)) openNotes.delete(id); else openNotes.add(id);
+        if (openDetails.has(id)) openDetails.delete(id); else openDetails.add(id);
         renderChecklist();
       }));
       el.querySelectorAll("[data-cnt]").forEach(t => t.addEventListener("input", () => { draft.checklist[+t.dataset.cnt].notes = t.value; }));
+      el.querySelectorAll("[data-cd]").forEach(t => t.addEventListener("input", () => { draft.checklist[+t.dataset.cd].dueDate = t.value || null; }));
+      el.querySelectorAll("[data-can]").forEach(t => t.addEventListener("input", () => { draft.checklist[+t.dataset.can].assigneeName = t.value; }));
+      el.querySelectorAll("[data-cae]").forEach(t => t.addEventListener("input", () => { draft.checklist[+t.dataset.cae].assigneeEmail = t.value; }));
     }
     renderChecklist();
 
     dlg.querySelector("#mAddCheck").addEventListener("click", () => {
       const inp = dlg.querySelector("#mNewCheck"); const label = inp.value.trim(); if (!label) return;
-      draft.checklist.push({ id: uid(), label, done: false, notes: "" }); inp.value = ""; renderChecklist();
+      draft.checklist.push({ id: uid(), label, done: false, notes: "", dueDate: null, assigneeName: "", assigneeEmail: "" }); inp.value = ""; renderChecklist();
     });
     dlg.querySelector("#mStatus").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; draft.status = b.dataset.v; dlg.querySelectorAll("#mStatus button").forEach(x => x.classList.toggle("active", x === b)); });
     dlg.querySelector("#mPriority").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; draft.priority = b.dataset.v; dlg.querySelectorAll("#mPriority button").forEach(x => x.classList.toggle("active", x === b)); });
