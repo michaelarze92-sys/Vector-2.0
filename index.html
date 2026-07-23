@@ -430,6 +430,32 @@
   .site-row{ cursor:pointer; }
   .site-row:hover td{ background:var(--surface-2); }
 
+  .profile-tabs{ display:flex; gap:0; margin-bottom:18px; border-bottom:1px solid var(--line); }
+  .profile-tab{
+    background:none; border:none; border-bottom:2px solid transparent; color:var(--ink-dim);
+    font-family:'Plex Cond',sans-serif; font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.04em;
+    padding:8px 4px 10px; margin-right:18px; cursor:pointer;
+  }
+  .profile-tab.active{ color:var(--ink); border-bottom-color:var(--accent); }
+
+  .metrics-accordion{ display:flex; flex-direction:column; gap:8px; }
+  .metric-section{ border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); overflow:hidden; }
+  .metric-section-head{
+    width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:none; border:none; padding:12px 14px; cursor:pointer; text-align:left;
+  }
+  .metric-section-head:hover{ background:var(--surface-2); }
+  .metric-section-title{ font-family:'Plex Cond',sans-serif; font-weight:600; font-size:.86rem; color:var(--ink); }
+  .metric-section-badge{
+    font-family:'Plex Mono',monospace; font-size:.68rem; color:var(--ink-dim);
+    border:1px solid var(--line); border-radius:20px; padding:2px 9px; flex:0 0 auto; white-space:nowrap;
+  }
+  .metric-section-badge.has-data{ color:var(--accent); border-color:var(--accent); }
+  .metric-section-head.open{ border-bottom:1px solid var(--line); }
+  .metric-section-body{ padding:14px; }
+  .metric-fields-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  @media (max-width:720px){ .metric-fields-grid{ grid-template-columns:1fr; } }
+
   .site-stats-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
 
   .ref-row{
@@ -1340,6 +1366,12 @@
       '<button class="icon-btn" id="sitesBackBtn" aria-label="Back to all sites" style="margin-right:6px;vertical-align:middle;">←</button>'+
       '<span class="sev-dot" style="'+siteColorCss(site)+'display:inline-block;margin-right:6px;vertical-align:middle;"></span>'+escapeHtml(site);
 
+    var html = '<div class="profile-tabs">'+
+      '<button class="profile-tab active" data-ptab="overview">Overview</button>'+
+      '<button class="profile-tab" data-ptab="board">Board Report</button>'+
+    '</div>';
+    html += '<div id="profileOverviewPane">';
+
     var tiles = [
       ["Open", r.openCount, ""],
       ["Red (critical)", r.critOpen, r.critOpen ? "crit" : ""],
@@ -1350,7 +1382,7 @@
       ["Final cost", r.doneCount ? fmtMoney(r.actualDoneCost) : "—", ""],
       ["Variance", formatVariance(r), "", "color:"+varianceColor(r)+";"]
     ];
-    var html = '<div class="site-stats-grid">' + tiles.map(function(t){
+    html += '<div class="site-stats-grid">' + tiles.map(function(t){
       return '<div class="tile '+t[2]+'"><span class="num mono" style="'+(t[3]||"")+'">'+t[1]+'</span><span class="lbl">'+t[0]+'</span></div>';
     }).join("") + '</div>';
 
@@ -1421,6 +1453,9 @@
     '</div>';
     html += '<div id="refList" style="margin-top:12px;"></div>';
     html += '</div>';
+    html += '</div>'; // /profileOverviewPane
+
+    html += '<div id="profileBoardPane" style="display:none;">' + renderBoardReportPane(site) + '</div>';
 
     document.getElementById("sitesModalBody").innerHTML = html;
     renderRefCatList();
@@ -1504,6 +1539,322 @@
       ["ref-title","ref-category","ref-url","ref-notes"].forEach(function(fid){ document.getElementById(fid).value = ""; });
       renderRefList(site);
       showToast("Link saved.");
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-ptab]"), function(btn){
+      btn.addEventListener("click", function(){
+        var tab = btn.getAttribute("data-ptab");
+        Array.prototype.forEach.call(document.querySelectorAll("[data-ptab]"), function(b){ b.classList.toggle("active", b === btn); });
+        document.getElementById("profileOverviewPane").style.display = tab === "overview" ? "block" : "none";
+        document.getElementById("profileBoardPane").style.display = tab === "board" ? "block" : "none";
+      });
+    });
+    wireMetricAccordion(site);
+  }
+
+  /* ---------------- board report metrics ---------------- */
+
+  var METRIC_SECTIONS = [
+    {
+      key:"complianceSnapshot", num:1, title:"Venue Compliance Snapshot",
+      fields:[
+        {key:"ehsAuditScore", label:"EHS audit score (%)", type:"number"},
+        {key:"overallStatus", label:"Overall status", type:"select", options:["Pass","Action required"]},
+        {key:"incidentsMTD", label:"Incidents (MTD)", type:"number"}
+      ],
+      hint:"Fire RA / Water Hygiene / EICR / LOLER status already come from the Compliance register on the Overview tab — no need to re-enter here."
+    },
+    {
+      key:"incidents", num:2, title:"Incident & Near-Miss Data", repeating:true,
+      rowFields:[
+        {key:"category", label:"Incident category", placeholder:"e.g. Slip / Trip / Fall"},
+        {key:"thisMonth", label:"This month", type:"number"},
+        {key:"lastMonth", label:"Last month", type:"number"},
+        {key:"ytd", label:"YTD", type:"number"},
+        {key:"riddor", label:"RIDDOR", type:"number"},
+        {key:"nearMiss", label:"Near miss", type:"number"},
+        {key:"trend", label:"Trend", type:"select", options:["Improving","Stable","Monitor","Worsening"]}
+      ]
+    },
+    {
+      key:"occHealth", num:3, title:"Occupational Health: Staff Welfare & Hazards",
+      fields:[
+        {key:"smokeFreeCompliance", label:"Smoke-free compliance (%)", type:"number"},
+        {key:"airQualityTest", label:"Air quality / ventilation test", type:"select", options:["Pass","Fail"]},
+        {key:"msdComplaints", label:"MSD / ergonomic complaints (MTD)", type:"number"},
+        {key:"antiFatigueMats", label:"Anti-fatigue mats & ergo equipment in place", type:"select", options:["Yes","No"]},
+        {key:"sheTrainingCompletion", label:"Mandatory SHE training completion (%)", type:"number"},
+        {key:"stressReferrals", label:"Stress / psychosocial referrals (EAP, MTD)", type:"number"},
+        {key:"riddorOccInjuriesYTD", label:"RIDDOR-reportable occupational injuries (YTD)", type:"number"}
+      ]
+    },
+    {
+      key:"publicSafety", num:4, title:"Public Safety & Licensee Obligations",
+      fields:[
+        {key:"challenge25", label:"Age verification compliance — Challenge 25 (%)", type:"number"},
+        {key:"cctvCoverage", label:"CCTV operational coverage (%)", type:"number"},
+        {key:"alcoholOverService", label:"Alcohol over-service incidents (MTD)", type:"number"},
+        {key:"securityStaffing", label:"Security staffing vs licensed level (%)", type:"number"},
+        {key:"selfExclusionBreaches", label:"Gambling Act self-exclusion breaches", type:"number"},
+        {key:"evacDrill", label:"Emergency evacuation drill (last 6 months)", type:"select", options:["Compliant","Overdue"]}
+      ]
+    },
+    {
+      key:"environmental", num:5, title:"Environmental Performance",
+      fields:[
+        {key:"energyUse", label:"Energy use (kWh, MTD)", type:"number"},
+        {key:"waterConsumption", label:"Water consumption (m³, MTD)", type:"number"},
+        {key:"ahuStatus", label:"Air handling unit service status", type:"select", options:["Current","Due","Overdue"]},
+        {key:"wasteToLandfill", label:"Waste to landfill (%)", type:"number"},
+        {key:"recyclingRate", label:"Recycling rate (%)", type:"number"},
+        {key:"refrigerantLeaks", label:"Refrigerant leak incidents", type:"number"},
+        {key:"envNotices", label:"Environmental notices / fines", type:"number"}
+      ]
+    },
+    {
+      key:"foodSafety", num:6, title:"Food Safety & Kitchen Compliance",
+      fields:[
+        {key:"ehoRating", label:"EHO inspection rating (last visit)", type:"select", options:["5 — Excellent","4 — Good","3 — Satisfactory","2 — Improvement required","1 — Major concerns"]},
+        {key:"haccp", label:"HACCP system in place", type:"select", options:["Yes","No"]},
+        {key:"foodHygieneCertPct", label:"Food hygiene cert compliance — staff (%)", type:"number"},
+        {key:"kitchenExtraction", label:"Kitchen extraction & suppression service", type:"select", options:["Yes","No"]},
+        {key:"tempLogs", label:"Fridge / freezer temp monitoring logs", type:"select", options:["Yes","No"]},
+        {key:"coshh", label:"COSHH assessments for kitchen chemicals", type:"select", options:["Yes","No"]},
+        {key:"pestControl", label:"Pest control — active contract & qtr check", type:"select", options:["Yes","No"]}
+      ]
+    },
+    {
+      key:"fmPerformance", num:7, title:"FM Contract Performance (Dalkia)",
+      fields:[
+        {key:"ppmTarget", label:"PPM completion rate — target (%)", type:"number"},
+        {key:"ppmActual", label:"PPM completion rate — this qtr (%)", type:"number"},
+        {key:"slaClosure", label:"Reactive works closed within SLA (%)", type:"number"},
+        {key:"statutoryOnTime", label:"Statutory compliance actions on time (%)", type:"number"},
+        {key:"ramsSubmitted", label:"Contractor RAMS submitted prior to works (%)", type:"number"}
+      ],
+      hint:"Quoted vs. actual cost variance is already tracked automatically from your issues — see the Overview tab."
+    },
+    {
+      key:"boardActions", num:8, title:"Priorities & Board Actions Required", repeating:true,
+      rowFields:[
+        {key:"action", label:"Action", placeholder:"What needs to happen"},
+        {key:"owner", label:"Owner"},
+        {key:"targetDate", label:"Target date", type:"date"},
+        {key:"boardInput", label:"Board input?", type:"select", options:["For noting","Board approval required","Strategic decision"]}
+      ]
+    }
+  ];
+
+  function getSectionData(site, key, repeating){
+    var d = getSiteDetail(site);
+    d.metrics = d.metrics || {};
+    if(!d.metrics[key]) d.metrics[key] = repeating ? {rows:[], refs:[]} : {values:{}, refs:[]};
+    return d.metrics[key];
+  }
+  function saveSectionData(site, key, data){
+    var d = getSiteDetail(site);
+    d.metrics = d.metrics || {};
+    d.metrics[key] = data;
+    saveSiteDetail(site, d);
+  }
+  function sectionBadge(section, data){
+    if(section.repeating) return (data.rows||[]).length + " logged";
+    var filled = 0;
+    section.fields.forEach(function(f){ if(data.values && data.values[f.key]) filled++; });
+    return filled + "/" + section.fields.length + " filled";
+  }
+  function sectionHasData(section, data){
+    return section.repeating ? (data.rows||[]).length > 0 : Object.keys(data.values||{}).some(function(k){ return data.values[k]; });
+  }
+
+  function renderBoardReportPane(site){
+    var html = '<div class="chase-note">Fill these in as you audit each site — figures from Dalkia, venue directors or HR. Each section autosaves on its own and can hold its own supporting documents. Only one section opens at a time to keep this manageable.</div>';
+    html += '<div class="metrics-accordion">';
+    METRIC_SECTIONS.forEach(function(section){
+      var data = getSectionData(site, section.key, section.repeating);
+      html += '<div class="metric-section" data-section="'+section.key+'">'+
+        '<button class="metric-section-head" data-toggle-section="'+section.key+'">'+
+          '<span class="metric-section-title">'+section.num+'. '+escapeHtml(section.title)+'</span>'+
+          '<span class="metric-section-badge'+(sectionHasData(section,data)?' has-data':'')+'" id="badge-'+section.key+'">'+sectionBadge(section,data)+'</span>'+
+        '</button>'+
+        '<div class="metric-section-body" id="section-body-'+section.key+'" style="display:none;"></div>'+
+      '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function renderBoardBadges(site){
+    METRIC_SECTIONS.forEach(function(section){
+      var data = getSectionData(site, section.key, section.repeating);
+      var el = document.getElementById("badge-"+section.key);
+      if(el){ el.textContent = sectionBadge(section, data); el.classList.toggle("has-data", sectionHasData(section, data)); }
+    });
+  }
+
+  function renderMetricRefs(site, section){
+    var el = document.getElementById("metric-refs-"+section.key);
+    if(!el) return;
+    var data = getSectionData(site, section.key, section.repeating);
+    var refs = data.refs || [];
+    if(!refs.length){ el.innerHTML = '<div class="bd-empty">No documents attached.</div>'; return; }
+    el.innerHTML = refs.slice().reverse().map(function(r){
+      return '<div class="ref-row"><div class="ref-main"><a href="'+escapeHtml(r.url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(r.title)+'</a></div>'+
+        '<button class="note-del" data-del-metric-ref="'+r.id+'" aria-label="Delete link" title="Delete link">✕</button></div>';
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll("[data-del-metric-ref]"), function(btn){
+      btn.addEventListener("click", function(){
+        var rid = btn.getAttribute("data-del-metric-ref");
+        confirmAction("Delete this link?", "This removes it from the section's documents.", function(){
+          var d = getSectionData(site, section.key, section.repeating);
+          d.refs = (d.refs||[]).filter(function(r){ return r.id !== rid; });
+          saveSectionData(site, section.key, d);
+          renderMetricRefs(site, section);
+        });
+      });
+    });
+  }
+
+  function renderMetricSectionBody(site, section){
+    var el = document.getElementById("section-body-"+section.key);
+    if(!el) return;
+    var data = getSectionData(site, section.key, section.repeating);
+    var html = "";
+    if(section.hint) html += '<div class="chase-note" style="margin-bottom:12px;">'+escapeHtml(section.hint)+'</div>';
+
+    if(section.repeating){
+      html += '<div class="subform open">';
+      section.rowFields.forEach(function(f){
+        html += '<div class="field"><label>'+escapeHtml(f.label)+'</label>';
+        if(f.type === "select"){
+          html += '<select id="mf-'+section.key+'-'+f.key+'"><option value="">—</option>'+f.options.map(function(o){ return '<option>'+escapeHtml(o)+'</option>'; }).join("")+'</select>';
+        } else {
+          html += '<input type="'+(f.type||"text")+'" id="mf-'+section.key+'-'+f.key+'" placeholder="'+escapeHtml(f.placeholder||"")+'">';
+        }
+        html += '</div>';
+      });
+      html += '<div class="subform-foot"><button class="btn btn-sm btn-primary" id="addRowBtn-'+section.key+'">Add entry</button></div>';
+      html += '</div>';
+      html += '<div id="rows-'+section.key+'" style="margin-top:4px;">';
+      if(!(data.rows||[]).length){ html += '<div class="bd-empty">Nothing logged yet.</div>'; }
+      else {
+        html += data.rows.slice().reverse().map(function(row){
+          var summary = section.rowFields.map(function(f){ return row[f.key] ? (f.label+': '+row[f.key]) : null; }).filter(Boolean).join(" · ");
+          return '<div class="ref-row"><div class="ref-main">'+escapeHtml(summary)+'</div><button class="note-del" data-del-row="'+row.id+'" aria-label="Delete entry" title="Delete entry">✕</button></div>';
+        }).join("");
+      }
+      html += '</div>';
+    } else {
+      html += '<div class="metric-fields-grid">';
+      section.fields.forEach(function(f){
+        var val = (data.values && data.values[f.key]) || "";
+        html += '<div class="field"><label>'+escapeHtml(f.label)+'</label>';
+        if(f.type === "select"){
+          html += '<select id="mf-'+section.key+'-'+f.key+'"><option value="">—</option>'+f.options.map(function(o){ return '<option'+(val===o?' selected':'')+'>'+escapeHtml(o)+'</option>'; }).join("")+'</select>';
+        } else {
+          html += '<input type="'+(f.type==="number"?"number":"text")+'" id="mf-'+section.key+'-'+f.key+'" value="'+escapeHtml(val)+'">';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '<div style="margin:12px 0;display:flex;align-items:center;gap:10px;">'+
+        '<button class="btn btn-sm btn-primary" id="saveFieldsBtn-'+section.key+'">Save section</button>'+
+        (data.updatedAt ? '<span class="reminder-site">Last updated '+fmtDate(data.updatedAt.slice(0,10))+'</span>' : '')+
+      '</div>';
+    }
+
+    html += '<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px;">'+
+      '<span class="eyebrow">Supporting documents</span>'+
+      '<div class="subform open" style="margin-top:8px;">'+
+        '<div class="row2">'+
+          '<div class="field"><label>Title</label><input type="text" id="mref-title-'+section.key+'" placeholder="e.g. EHO report, utility bill"></div>'+
+          '<div class="field"><label>Link (URL)</label><input type="text" id="mref-url-'+section.key+'" placeholder="https://…"></div>'+
+        '</div>'+
+        '<div class="subform-foot"><button class="btn btn-sm btn-primary" id="addMetricRefBtn-'+section.key+'">Save link</button></div>'+
+      '</div>'+
+      '<div id="metric-refs-'+section.key+'" style="margin-top:10px;"></div>'+
+    '</div>';
+
+    el.innerHTML = html;
+    renderMetricRefs(site, section);
+
+    if(section.repeating){
+      document.getElementById("addRowBtn-"+section.key).addEventListener("click", function(){
+        var row = {id: uid()};
+        var hasAny = false;
+        section.rowFields.forEach(function(f){
+          var fEl = document.getElementById("mf-"+section.key+"-"+f.key);
+          var v = fEl.value.trim();
+          row[f.key] = v;
+          if(v) hasAny = true;
+        });
+        if(!hasAny){ showToast("Fill in at least one field."); return; }
+        var d = getSectionData(site, section.key, true);
+        d.rows = d.rows || [];
+        d.rows.push(row);
+        d.updatedAt = new Date().toISOString();
+        saveSectionData(site, section.key, d);
+        renderMetricSectionBody(site, section);
+        renderBoardBadges(site);
+        showToast("Logged.");
+      });
+      Array.prototype.forEach.call(el.querySelectorAll("[data-del-row]"), function(btn){
+        btn.addEventListener("click", function(){
+          var rid = btn.getAttribute("data-del-row");
+          confirmAction("Delete this entry?", "This removes it from the record.", function(){
+            var d = getSectionData(site, section.key, true);
+            d.rows = (d.rows||[]).filter(function(r){ return r.id !== rid; });
+            saveSectionData(site, section.key, d);
+            renderMetricSectionBody(site, section);
+            renderBoardBadges(site);
+          });
+        });
+      });
+    } else {
+      document.getElementById("saveFieldsBtn-"+section.key).addEventListener("click", function(){
+        var d = getSectionData(site, section.key, false);
+        d.values = d.values || {};
+        section.fields.forEach(function(f){
+          d.values[f.key] = document.getElementById("mf-"+section.key+"-"+f.key).value.trim();
+        });
+        d.updatedAt = new Date().toISOString();
+        saveSectionData(site, section.key, d);
+        renderMetricSectionBody(site, section);
+        renderBoardBadges(site);
+        showToast("Section saved.");
+      });
+    }
+
+    document.getElementById("addMetricRefBtn-"+section.key).addEventListener("click", function(){
+      var title = document.getElementById("mref-title-"+section.key).value.trim();
+      var url = document.getElementById("mref-url-"+section.key).value.trim();
+      if(!title || !url){ showToast("Add a title and a link."); return; }
+      var d = getSectionData(site, section.key, section.repeating);
+      d.refs = d.refs || [];
+      d.refs.push({id: uid(), title: title, url: url, addedAt: new Date().toISOString()});
+      saveSectionData(site, section.key, d);
+      document.getElementById("mref-title-"+section.key).value = "";
+      document.getElementById("mref-url-"+section.key).value = "";
+      renderMetricRefs(site, section);
+      showToast("Link saved.");
+    });
+  }
+
+  function wireMetricAccordion(site){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-toggle-section]"), function(btn){
+      btn.addEventListener("click", function(){
+        var key = btn.getAttribute("data-toggle-section");
+        var section = METRIC_SECTIONS.find(function(s){ return s.key === key; });
+        var body = document.getElementById("section-body-"+key);
+        var isOpen = body.style.display !== "none";
+        Array.prototype.forEach.call(document.querySelectorAll(".metric-section-body"), function(b){ b.style.display = "none"; });
+        Array.prototype.forEach.call(document.querySelectorAll(".metric-section-head"), function(h){ h.classList.remove("open"); });
+        if(!isOpen){
+          body.style.display = "block";
+          btn.classList.add("open");
+          renderMetricSectionBody(site, section);
+        }
+      });
     });
   }
 
