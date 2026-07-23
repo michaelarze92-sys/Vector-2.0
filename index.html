@@ -54,6 +54,27 @@
     --st-open:#3E7EA6; --st-progress:#2E8C7F; --st-awaiting:#8069A8; --st-resolved:#5A6FA6; --st-closed:#71767D;
     --shadow: 0 8px 24px -8px rgba(80,20,20,.18);
   }
+  /* Hybrid: dark main screen, light-styled popups (drawers, modals, lightbox, toast, menus) */
+  :root[data-theme="hybrid"]{
+    --bg:#2B0A10; --surface:#3A0F16; --surface-2:#4A141C; --surface-3:#5A1B24;
+    --ink:#F3E9D8; --ink-dim:#C9A98E; --line:#6B2530;
+    --accent:#C9A227; --accent-ink:#2B0A10; --accent-soft:rgba(201,162,39,.16);
+    --sev-red:#FF5A5A; --sev-yellow:#FFD639; --sev-green:#4CD97B;
+    --st-open:#4FA3D9; --st-progress:#4FBDB2; --st-awaiting:#B79FD1; --st-resolved:#7C93C4; --st-closed:#8A93A0;
+    --shadow: 0 8px 24px -8px rgba(10,2,4,.55);
+  }
+  :root[data-theme="hybrid"] .drawer,
+  :root[data-theme="hybrid"] .modal,
+  :root[data-theme="hybrid"] .lightbox,
+  :root[data-theme="hybrid"] .toast,
+  :root[data-theme="hybrid"] .menu{
+    --bg:#F6F1E7; --surface:#FBF8F2; --surface-2:#F0E9DC; --surface-3:#E8DFCE;
+    --ink:#7A1620; --ink-dim:#9C5259; --line:#DFCBB8;
+    --accent:#A9821F; --accent-ink:#2B0A10; --accent-soft:rgba(169,130,31,.14);
+    --sev-red:#C43D3D; --sev-yellow:#B8860B; --sev-green:#2E7D46;
+    --st-open:#3E7EA6; --st-progress:#2E8C7F; --st-awaiting:#8069A8; --st-resolved:#5A6FA6; --st-closed:#71767D;
+    --shadow: 0 8px 24px -8px rgba(80,20,20,.18);
+  }
 
   *,*::before,*::after{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
@@ -297,7 +318,7 @@
   .overlay.open{ opacity:1; pointer-events:auto; }
   .drawer{
     position:fixed; top:0; right:0; bottom:0; width:min(460px,100%); z-index:41;
-    background:var(--bg); border-left:1px solid var(--line);
+    background:var(--bg); color:var(--ink); border-left:1px solid var(--line);
     transform:translateX(100%); transition:transform .22s ease;
     display:flex; flex-direction:column;
   }
@@ -477,7 +498,7 @@
     display:none; align-items:center; justify-content:center; padding:20px;
   }
   .modal-overlay.open{ display:flex; }
-  .modal{ background:var(--bg); border:1px solid var(--line); border-radius:var(--radius); max-width:420px; width:100%; box-shadow:var(--shadow); }
+  .modal{ background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:var(--radius); max-width:420px; width:100%; box-shadow:var(--shadow); }
   .modal-head{ padding:16px 18px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
   .modal-head h2{ font-family:'Plex Cond',sans-serif; font-weight:600; font-size:1.05rem; }
   .modal-body{ padding:18px; font-size:.86rem; }
@@ -528,7 +549,7 @@
           <button id="exportJsonBtn">Export backup (.json)</button>
           <button id="exportCsvBtn">Export report (.csv)</button>
           <button id="importBtn">Import backup (.json)</button>
-          <button id="themeToggleBtn">Toggle light / dark</button>
+          <button id="themeToggleBtn">Toggle theme (dark / light / hybrid)</button>
           <div class="note">Everything — issues, notes, photos &amp; documents — lives only in this browser. Export backup regularly, or to move it to another device.</div>
         </div>
         <input type="file" id="importFile" accept="application/json">
@@ -3356,14 +3377,16 @@
 
   /* ---------------- theme toggle ---------------- */
 
+  var THEME_CYCLE = ["dark", "light", "hybrid", null];
   function applyTheme(t){
-    if(t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+    if(THEME_CYCLE.indexOf(t) !== -1 && t !== null) document.documentElement.setAttribute("data-theme", t);
     else document.documentElement.removeAttribute("data-theme");
   }
   applyTheme(load(THEME_KEY, null));
   document.getElementById("themeToggleBtn").addEventListener("click", function(){
     var current = document.documentElement.getAttribute("data-theme");
-    var next = current === "dark" ? "light" : (current === "light" ? null : "dark");
+    var idx = THEME_CYCLE.indexOf(current);
+    var next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
     applyTheme(next);
     save(THEME_KEY, next);
   });
