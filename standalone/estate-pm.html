@@ -1105,9 +1105,35 @@
     reader.onload = () => {
       try {
         const parsed = JSON.parse(reader.result);
-        if (!parsed || !Array.isArray(parsed.venues)) throw new Error("Not a recognised backup file");
-        state = Object.assign(freshState(), parsed, { ui: Object.assign(freshState().ui, parsed.ui || {}) });
-        save(); toast("Backup imported"); renderPage();
+        if (!parsed || !Array.isArray(parsed.projects) || !Array.isArray(parsed.tasks)) throw new Error("Not a recognised backup file");
+        // Merge into existing data (never silently replace it) — venues stay as seeded,
+        // ids that collide with something already here get a fresh id, with references updated to match.
+        const idMap = {};
+        const remap = (id) => (id == null ? id : (idMap[id] || id));
+        const existingProjectIds = new Set(state.projects.map(p => p.id));
+        const existingTaskIds = new Set(state.tasks.map(t => t.id));
+        const existingBudgetIds = new Set(state.budgetLines.map(b => b.id));
+
+        const newProjects = (parsed.projects || []).map(p => {
+          const id = existingProjectIds.has(p.id) ? uid() : p.id;
+          if (id !== p.id) idMap[p.id] = id;
+          return { ...p, id };
+        });
+        const newTasks = (parsed.tasks || []).map(t => {
+          const id = existingTaskIds.has(t.id) ? uid() : t.id;
+          if (id !== t.id) idMap[t.id] = id;
+          return { ...t, id };
+        });
+        newTasks.forEach(t => { t.projectId = remap(t.projectId); t.dependsOnTaskId = remap(t.dependsOnTaskId); });
+        const newBudgetLines = (parsed.budgetLines || []).map(b => {
+          const id = existingBudgetIds.has(b.id) ? uid() : b.id;
+          return { ...b, id, projectId: remap(b.projectId) };
+        });
+
+        state.projects.push(...newProjects);
+        state.tasks.push(...newTasks);
+        state.budgetLines.push(...newBudgetLines);
+        save(); toast(`Imported ${newProjects.length} project(s), ${newTasks.length} task(s) — added to what's already here`); renderPage();
       } catch (e) { toast("Import failed — that file doesn't look like a backup"); }
     };
     reader.readAsText(file);
