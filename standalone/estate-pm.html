@@ -392,6 +392,27 @@
   .inline-add-form input[type="date"] { flex: 0 1 148px; }
   .inline-add-form select { flex: 0 1 120px; }
   .inline-add-form .grow2 { flex-grow: 2; }
+
+  .note-card { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .note-card summary {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; list-style: none;
+    font-size: 13px; background: var(--surface-2);
+  }
+  .note-card summary::-webkit-details-marker { display: none; }
+  .note-card summary .chevron { flex: none; transition: transform 0.15s ease; color: var(--ink-muted); transform: rotate(-90deg); }
+  .note-card[open] summary .chevron { transform: rotate(0deg); }
+  .note-card .n-source { flex: none; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--ink-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
+  .note-card .n-title { flex: 1; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .note-card .n-date { flex: none; font-size: 11.5px; color: var(--ink-muted); font-weight: 600; }
+  .note-card .n-body {
+    padding: 12px 14px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; color: var(--ink-secondary);
+    border-top: 1px solid var(--border); max-height: 340px; overflow-y: auto;
+  }
+  .note-form-grid { display: flex; flex-direction: column; gap: 8px; }
+  .note-form-grid textarea {
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm);
+    padding: 9px 10px; font-size: 13px; font-family: inherit; min-height: 90px; resize: vertical;
+  }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
 
   /* ---------- Calendar ---------- */
@@ -564,7 +585,7 @@
 
   function freshState() {
     return { venues: SEED_VENUES.map(v => ({ ...v })), projects: [], tasks: [], budgetLines: [],
-      contacts: [], qaItems: [], documents: [], decisions: [], risks: [],
+      contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [],
       ui: { collapsed: {}, ganttZoom: "week", calMonth: todayISO().slice(0, 7) } };
   }
 
@@ -597,6 +618,7 @@
   function projectDecisions(id) { return state.decisions.filter(d => d.projectId === id); }
   function projectRisks(id) { return state.risks.filter(r => r.projectId === id); }
   function openRiskCount(id) { return projectRisks(id).filter(r => r.status === "Open").length; }
+  function projectMeetingNotes(id) { return state.meetingNotes.filter(n => n.projectId === id); }
 
   function toast(msg) {
     const el = document.getElementById("toast");
@@ -1033,6 +1055,7 @@
     const tasks = projectTasks(id);
     const spend = projectSpend(id);
     const risks = projectRisks(id), decisions = projectDecisions(id), qa = projectQA(id), docs = projectDocuments(id), contacts = projectContacts(id);
+    const meetingNotes = projectMeetingNotes(id);
 
     return `
       <div class="page-head">
@@ -1059,6 +1082,37 @@
       <div class="card">
         <div class="card-head"><h2>Tasks</h2><span class="g-count">${tasks.length}</span></div>
         <div class="card-body">${tasks.length ? tasks.map(t => taskRowHtml(t, isOverdue(t))).join("") : emptyState("No tasks linked to this project yet — use quick-add at the top.")}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>${ICON.note} Meeting Notes &amp; Transcripts</h2><span class="g-count">${meetingNotes.length}</span></div>
+        <div class="card-body pad" style="display:flex;flex-direction:column;gap:8px">
+          ${meetingNotes.length ? [...meetingNotes].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(n => `
+            <details class="note-card">
+              <summary>
+                ${ICON.chevron.replace('width="13" height="13"', 'width="12" height="12" class="chevron"')}
+                <span class="n-source">${escapeHtml(n.source || "Note")}</span>
+                <span class="n-title">${escapeHtml(n.title)}</span>
+                <span class="n-date">${fmtShort(n.date)}</span>
+                <button type="button" class="icon-x" data-delete-meetingnote="${n.id}">${ICON.x}</button>
+              </summary>
+              <div class="n-body">${escapeHtml(n.body || "")}</div>
+            </details>
+          `).join("") : emptyState("No meeting notes or transcripts yet — paste one in below.")}
+        </div>
+        <div class="card-body pad" style="border-top:1px solid var(--border)">
+          <form class="note-form-grid" data-add-meetingnote="${id}">
+            <div class="field-row">
+              <div class="field"><label>Date</label><input type="date" name="date" value="${todayISO()}" /></div>
+              <div class="field"><label>Source</label>
+                <select name="source"><option>Meeting</option><option>Call</option><option>Email</option><option selected>Transcript</option><option>Other</option></select>
+              </div>
+            </div>
+            <input type="text" name="title" placeholder="Title — e.g. Call with WCC Planning Officer" required style="border:1px solid var(--border);background:var(--surface-2);color:var(--ink);border-radius:var(--radius-sm);padding:9px 10px;font-size:13.5px;font-family:inherit" />
+            <textarea name="body" placeholder="Paste the transcript, email text, or meeting notes here…"></textarea>
+            <button class="btn btn-sm btn-accent" type="submit" style="align-self:flex-start">${ICON.plus} Add note</button>
+          </form>
+        </div>
       </div>
 
       <div class="card">
@@ -1183,6 +1237,7 @@
     { key: "qaItems", addAttr: "data-add-qa", delAttr: "data-delete-qa", fields: ["date", "askedOf", "question", "answer", "status", "followUp"] },
     { key: "documents", addAttr: "data-add-document", delAttr: "data-delete-document", fields: ["dateReceived", "name", "type", "source", "location", "notes"] },
     { key: "contacts", addAttr: "data-add-contact", delAttr: "data-delete-contact", fields: ["name", "orgRole", "area", "phone", "email", "notes"] },
+    { key: "meetingNotes", addAttr: "data-add-meetingnote", delAttr: "data-delete-meetingnote", fields: ["date", "title", "source", "body"] },
   ];
 
   function bindProjectDetailEvents(root) {
@@ -1202,7 +1257,8 @@
           save(); toast("Added"); renderPage();
         });
       }
-      root.querySelectorAll(`[${cfg.delAttr}]`).forEach(btn => btn.addEventListener("click", () => {
+      root.querySelectorAll(`[${cfg.delAttr}]`).forEach(btn => btn.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation(); // a delete button inside a <summary> must not also toggle it open/closed
         const recId = btn.getAttribute(cfg.delAttr);
         state[cfg.key] = state[cfg.key].filter(r => r.id !== recId);
         save(); renderPage();
