@@ -3219,6 +3219,11 @@
     html += '<div><span class="k">Cost variance</span>'+issueVarianceHtml(issue)+'</div>';
     html += '</div>';
 
+    html += '<div class="detail-section"><span class="eyebrow">Project Board</span>'+
+      '<div class="chase-note" style="margin-top:8px;">If this issue is becoming a full project (capital works, refurb, major plant), promote it: downloads a file to import in the Project &amp; Compliance Board via Data &amp; Backup → Import. Budget, dates and details carry over.</div>'+
+      '<button class="btn btn-sm" id="promoteProjectBtn">Promote to project (.json)</button>'+
+    '</div>';
+
     if((issue.tags||[]).length){
       html += '<div class="detail-section"><span class="eyebrow">Tags</span><div style="margin-top:8px;">'+issue.tags.map(function(t){ return '<span class="tag" style="margin-right:5px;">'+escapeHtml(t)+'</span>'; }).join("")+'</div></div>';
     }
@@ -3335,6 +3340,7 @@
     });
 
     document.getElementById("openChaseBtn").addEventListener("click", function(){ openChaseModal(issue); });
+    document.getElementById("promoteProjectBtn").addEventListener("click", function(){ promoteIssueToProject(issue); });
 
     renderFilesGrid(issue.id);
     document.getElementById("attachZone").addEventListener("click", function(){
@@ -3710,6 +3716,71 @@
       downloadFallback(filename, mime, text);
       showToast("Downloaded " + filename);
     }
+  }
+
+  /* ---------------- promote issue to Project Board (metroEstatesPM.v1 format) ---------------- */
+
+  var PM_VENUE_IDS = {"Leicester Square":"v1","Mayfair":"v2","Park Lane":"v3","Marble Arch":"v4","Glasgow":"v5","Manchester":"v6","Nottingham":"v7"};
+  var PM_CATEGORY_MAP = {"Health & Safety":"Compliance","Capital Project":"Refurbishment","FM / Dalkia SLA":"Contractor-Managed","Tender & Contract":"Contractor-Managed"};
+  function pmStatusFor(status){
+    if(DONE_STATUSES.indexOf(status) !== -1) return "Done";
+    if(status === "In Progress") return "In Progress";
+    if(/await/i.test(status||"")) return "Blocked";
+    return "Not Started";
+  }
+  function pmPriorityFor(issue){
+    var band = severityBand(issue);
+    return band === "red" ? "Critical" : band === "yellow" ? "High" : "Medium";
+  }
+
+  function promoteIssueToProject(issue){
+    var venueId = PM_VENUE_IDS[issue.site] || null;
+    var project = {
+      id: "lgr-" + issue.id,
+      name: issue.title,
+      venueId: venueId,
+      category: PM_CATEGORY_MAP[issue.category] || "Other",
+      owner: issue.assigned || "",
+      status: pmStatusFor(issue.status),
+      budgetAllocated: Number(issue.costEstimate) || 0,
+      startDate: issue.dateReported || todayISO(),
+      targetEndDate: issue.targetDate || null,
+      actualEndDate: null,
+      licenceRiskFlag: false,
+      gamingFloorDisruption: false
+    };
+    var notesLines = [];
+    if(issue.description) notesLines.push(issue.description);
+    notesLines.push("Promoted from Estates Ledger issue \"" + issue.title + "\" at " + issue.site +
+      (issue.dateReported ? ", reported " + fmtDate(issue.dateReported) : "") +
+      (issue.costEstimate ? ". Quoted " + fmtMoney(issue.costEstimate) : "") +
+      (issue.assigned ? ". Assigned: " + issue.assigned : "") + ".");
+    var task = {
+      id: "lgr-task-" + issue.id,
+      projectId: project.id,
+      venueId: venueId,
+      name: "Carried over from Estates Ledger — review scope & plan",
+      ownerName: issue.assigned || "",
+      ownerEmail: "",
+      startDate: todayISO(),
+      dueDate: issue.targetDate || null,
+      status: "Not Started",
+      priority: pmPriorityFor(issue),
+      dependsOnTaskId: null,
+      boardInputRequired: false,
+      notes: notesLines.join("\n\n"),
+      checklist: [],
+      progressPct: 0,
+      createdAt: Date.now()
+    };
+    var payload = { source: "estates-ledger", projects: [project], tasks: [task], budgetLines: [] };
+    var slug = (issue.title || "issue").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    offerDownload("promote-" + slug + ".json", "application/json", JSON.stringify(payload, null, 2));
+    issue.notes = issue.notes || [];
+    issue.notes.push({id: uid(), ts: new Date().toISOString(), text: "Promoted to Project Board — exported \"promote-" + slug + ".json\" for import into the Project & Compliance Board."});
+    save(STORAGE_KEY, issues);
+    renderNotesList(issue);
+    showToast("Project file downloaded — import it in the Project Board (Data & Backup).");
   }
 
   document.getElementById("exportJsonBtn").addEventListener("click", function(){
