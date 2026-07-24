@@ -1636,6 +1636,8 @@
 
     html += '<div style="margin-bottom:18px;"><button class="btn btn-sm" id="viewIssuesBtn">View this site’s issues in the ledger →</button></div>';
 
+    html += '<div class="detail-section" id="siteProjectsSection"></div>';
+
     html += '<div class="detail-section"><span class="eyebrow">Site details</span>'+
       '<div class="row2" style="margin-top:8px;">'+
         '<div class="field"><label>Address</label><input id="sd-address"></div>'+
@@ -1707,6 +1709,7 @@
 
     document.getElementById("sitesModalBody").innerHTML = html;
     renderSiteImage(site);
+    renderSiteProjects(site);
     renderRefCatList();
     renderRefList(site);
 
@@ -2674,14 +2677,56 @@
 
   var pendingCsvRow = null;
 
+  /* Project Board (metroEstatesPM.v1) backup import — read-only view of capital
+     project budgets/spend per site. The Board stays the master for project data. */
+  var PM_VENUE_IDS = {"Leicester Square":"v1","Mayfair":"v2","Park Lane":"v3","Marble Arch":"v4","Glasgow":"v5","Manchester":"v6","Nottingham":"v7"};
+  var PM_BOARD_KEY = "estatesLedger.pmBoard.v1";
+  var PM_ID_TO_SITE = {};
+  Object.keys(PM_VENUE_IDS).forEach(function(site){ PM_ID_TO_SITE[PM_VENUE_IDS[site]] = site; });
+
+  function getPmBoard(){
+    try { var raw = localStorage.getItem(PM_BOARD_KEY); return raw ? JSON.parse(raw) : null; }
+    catch(e){ return null; }
+  }
+  function importPmBackup(parsed){
+    var spendByProject = {};
+    (parsed.budgetLines || []).forEach(function(b){
+      if(!b || !b.projectId) return;
+      spendByProject[b.projectId] = (spendByProject[b.projectId] || 0) + (Number(b.amount) || 0);
+    });
+    var projects = (parsed.projects || []).map(function(p){
+      return {
+        id: p.id, name: p.name || "(unnamed project)",
+        site: PM_ID_TO_SITE[p.venueId] || null,
+        category: p.category || "", owner: p.owner || "", status: p.status || "",
+        budgetAllocated: Number(p.budgetAllocated) || 0,
+        spend: spendByProject[p.id] || 0,
+        startDate: p.startDate || null, targetEndDate: p.targetEndDate || null
+      };
+    });
+    localStorage.setItem(PM_BOARD_KEY, JSON.stringify({importedAt: new Date().toISOString(), projects: projects}));
+    return projects;
+  }
+
   function renderImportPane(){
-    var html = '<div class="chase-note">Upload the quarterly Board SHE Report CSV (matching the Dalkia / WorkNest / Venue Director data-return format — either the 4-venue or 7-venue schema). This updates every venue\'s Board Report figures plus the estate-wide Incidents, FM Performance and Board Actions tables in one go. You\'ll see a preview before anything is saved.</div>';
+    var html = '<span class="eyebrow">Board report CSV</span>';
+    html += '<div class="chase-note" style="margin-top:8px;">Upload the quarterly Board SHE Report CSV (matching the Dalkia / WorkNest / Venue Director data-return format — either the 4-venue or 7-venue schema). This updates every venue\'s Board Report figures plus the estate-wide Incidents, FM Performance and Board Actions tables in one go. You\'ll see a preview before anything is saved.</div>';
     html += '<div class="subform open">'+
       '<div class="field"><label>CSV file</label><input type="file" id="csvFileInput" accept=".csv,text/csv"></div>'+
       '<div class="field"><label>…or paste CSV text</label><textarea id="csvPasteInput" rows="6" style="width:100%;font-family:\'Plex Mono\',monospace;font-size:.78rem;" placeholder="Paste the header row and one data row here"></textarea></div>'+
       '<div class="subform-foot"><button class="btn btn-sm btn-primary" id="parseCsvBtn">Preview import</button></div>'+
     '</div>';
     html += '<div id="csvPreviewArea" style="margin-top:16px;"></div>';
+
+    var pm = getPmBoard();
+    html += '<div style="margin-top:26px;border-top:1px solid var(--line);padding-top:18px;">'+
+      '<span class="eyebrow">Project Board backup (.json)</span>'+
+      '<div class="chase-note" style="margin-top:8px;">Import a backup exported from the Project &amp; Compliance Board (Data &amp; Backup → Export backup). The Ledger reads project budgets and logged costs so each site\'s profile shows capital project spend alongside its reactive issues. The Board stays the master — nothing is edited here, and re-importing a newer backup replaces the previous snapshot.</div>'+
+      '<div class="field"><label>Backup file</label><input type="file" id="pmFileInput" accept=".json,application/json"></div>'+
+      '<div id="pmPreviewArea" style="margin-top:10px;">'+
+        (pm ? '<div class="chase-note">Current snapshot: '+pm.projects.length+' project(s), imported '+fmtDate(pm.importedAt.slice(0,10))+'.</div>' : '')+
+      '</div>'+
+    '</div>';
     return html;
   }
   function wireImportPane(){
@@ -2703,6 +2748,27 @@
       } catch(err){
         showToast("Couldn't parse that CSV — check the format.");
       }
+    });
+    document.getElementById("pmFileInput").addEventListener("change", function(e){
+      var file = e.target.files[0];
+      if(!file) return;
+      var reader = new FileReader();
+      reader.onload = function(ev){
+        var area = document.getElementById("pmPreviewArea");
+        var parsed;
+        try { parsed = JSON.parse(ev.target.result); } catch(err){ showToast("That file isn't valid JSON."); return; }
+        if(!parsed || !Array.isArray(parsed.projects)){ showToast("That doesn't look like a Project Board backup."); return; }
+        var withBudget = parsed.projects.filter(function(p){ return Number(p.budgetAllocated) > 0; }).length;
+        area.innerHTML = '<div class="chase-note">Found <strong>'+parsed.projects.length+' project(s)</strong> ('+withBudget+' with a budget) and '+(parsed.budgetLines||[]).length+' cost line(s). This replaces the previous Project Board snapshot in the Ledger.</div>'+
+          '<button class="btn btn-primary" id="applyPmImportBtn">Apply import</button>';
+        document.getElementById("applyPmImportBtn").addEventListener("click", function(){
+          var projects = importPmBackup(parsed);
+          area.innerHTML = '<div class="chase-note">Imported '+projects.length+' project(s). Open any site\'s profile to see its capital project spend.</div>';
+          showToast("Project Board data imported.");
+        });
+      };
+      reader.readAsText(file);
+      e.target.value = "";
     });
   }
   function renderCsvPreview(rowObj){
@@ -2857,6 +2923,49 @@
     }).catch(function(){
       showToast("Couldn't store that image — it may be too large for this browser.");
     });
+  }
+
+  /* ---------------- capital projects (read-only, from Project Board backup) ---------------- */
+
+  function renderSiteProjects(site){
+    var el = document.getElementById("siteProjectsSection");
+    if(!el) return;
+    var pm = getPmBoard();
+    var html = '<span class="eyebrow">Capital projects (from Project Board)</span>';
+    if(!pm){
+      html += '<div class="bd-empty" style="margin-top:8px;">No Project Board data imported yet — Reports → Import → Project Board backup.</div>';
+      el.innerHTML = html;
+      return;
+    }
+    var projects = pm.projects.filter(function(p){ return p.site === site; });
+    if(!projects.length){
+      html += '<div class="bd-empty" style="margin-top:8px;">No projects at this site in the imported snapshot ('+fmtDate(pm.importedAt.slice(0,10))+').</div>';
+      el.innerHTML = html;
+      return;
+    }
+    var totalAlloc = 0, totalSpend = 0;
+    html += '<div class="sites-table-wrap" style="margin-top:8px;"><table class="sites-table"><thead><tr><th>Project</th><th>Status</th><th>Allocated</th><th>Spent</th><th>Burn</th></tr></thead><tbody>';
+    projects.forEach(function(p){
+      totalAlloc += p.budgetAllocated; totalSpend += p.spend;
+      var pct = p.budgetAllocated > 0 ? Math.round(p.spend / p.budgetAllocated * 100) : null;
+      var burnColor = pct === null ? "var(--ink-dim)" : pct > 100 ? "var(--sev-red)" : pct >= 85 ? "var(--sev-yellow)" : "var(--sev-green)";
+      html += '<tr>'+
+        '<td>'+escapeHtml(p.name)+(p.owner ? '<div class="reminder-site">'+escapeHtml(p.owner)+'</div>' : '')+'</td>'+
+        '<td>'+escapeHtml(p.status || "—")+'</td>'+
+        '<td class="mono">'+fmtMoney(p.budgetAllocated)+'</td>'+
+        '<td class="mono">'+fmtMoney(p.spend)+'</td>'+
+        '<td class="mono" style="color:'+burnColor+';font-weight:700;">'+(pct === null ? "—" : pct + "%")+'</td>'+
+      '</tr>';
+    });
+    html += '<tr>'+
+      '<td style="font-weight:700;">Total</td><td></td>'+
+      '<td class="mono" style="font-weight:700;">'+fmtMoney(totalAlloc)+'</td>'+
+      '<td class="mono" style="font-weight:700;">'+fmtMoney(totalSpend)+'</td>'+
+      '<td class="mono" style="font-weight:700;">'+(totalAlloc > 0 ? Math.round(totalSpend/totalAlloc*100)+"%" : "—")+'</td>'+
+    '</tr>';
+    html += '</tbody></table></div>';
+    html += '<div class="reminder-site" style="margin-top:6px;">Snapshot imported '+fmtDate(pm.importedAt.slice(0,10))+' — the Project Board is the master; re-import a fresh backup to update.</div>';
+    el.innerHTML = html;
   }
 
   function renderRefList(site){
@@ -3720,7 +3829,6 @@
 
   /* ---------------- promote issue to Project Board (metroEstatesPM.v1 format) ---------------- */
 
-  var PM_VENUE_IDS = {"Leicester Square":"v1","Mayfair":"v2","Park Lane":"v3","Marble Arch":"v4","Glasgow":"v5","Manchester":"v6","Nottingham":"v7"};
   var PM_CATEGORY_MAP = {"Health & Safety":"Compliance","Capital Project":"Refurbishment","FM / Dalkia SLA":"Contractor-Managed","Tender & Contract":"Contractor-Managed"};
   function pmStatusFor(status){
     if(DONE_STATUSES.indexOf(status) !== -1) return "Done";
