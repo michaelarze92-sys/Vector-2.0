@@ -130,9 +130,34 @@ targets on a phone; any `position:fixed` button eventually lands on some control
 | `estatesLedger.sites/contractors/emails/theme/refs.v1` | lookups and prefs |
 | IndexedDB `estatesLedgerFiles` | attachments + site photos (blobs) |
 
-Export backup (`⋮ → Export backup`) serialises all of it including blobs as base64 —
-if you add a new key, add it to both the export payload and the import handler, or
-Michael's backups will silently lose it.
+### Backups — read before touching storage
+
+`BACKUP_KEYS` is the single list of every localStorage key the app owns. Export copies
+each one verbatim into `payload.localState`; import writes them back. **Add any new key
+to `BACKUP_KEYS` and nothing else needs changing.** Vector's chat history is the one
+deliberate omission.
+
+This exists because the v1 backup hard-coded four keys and silently dropped the rest —
+a restore on a new device lost every site profile, contact, compliance register, the
+whole Board Report, reference links and the Project Board snapshot. `formatVersion: 2`
+marks backups that carry `localState`; importing an older file warns that those sections
+will be left alone rather than wiped.
+
+Two traps that both cost a round of debugging:
+
+- **A key with no constant gets forgotten.** `estateMetrics` was an inline string literal
+  in two places, so it wasn't in the first `BACKUP_KEYS`. Every key now has a named
+  constant declared with the others near the top. Keep it that way.
+- **Restoring localStorage is not enough.** Every module-level cache (`issues`, `sites`,
+  `contractors`, `emails`, `contractorEmailMap`, `siteDetails`, `siteRefs`,
+  `refCategories`) is read *once* at startup. The import handler must re-read them or the
+  import appears to fail — data sits in localStorage while the UI shows the old empty
+  state until a manual reload. `siteDetails` is the costly one: site profiles, compliance
+  registers and board metrics all live in it.
+
+`test_backup_roundtrip.js` guards all of this: it fills device A, exports, imports on a
+clean browser profile, and asserts every section plus both blob types came across and
+actually render.
 
 ## Cross-app contract with the Project Board
 

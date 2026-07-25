@@ -917,6 +917,7 @@
   var EMAILS_KEY = "estatesLedger.emails.v1";
   var CONTRACTOR_EMAIL_KEY = "estatesLedger.contractorEmails.v1";
   var THEME_KEY = "estatesLedger.theme.v1";
+  var ESTATE_METRICS_KEY = "estatesLedger.estateMetrics.v1";
 
   var CATEGORIES = ["Fabric & Building","M&E / Plant","Health & Safety","FM / Dalkia SLA","Capital Project","Tender & Contract","Other"];
   var STATUSES = ["Open","In Progress","Awaiting Contractor","Resolved","Closed"];
@@ -2302,7 +2303,7 @@
 
   function getEstateMetrics(){
     var d;
-    try { var raw = localStorage.getItem("estatesLedger.estateMetrics.v1"); d = raw ? JSON.parse(raw) : {}; }
+    try { var raw = localStorage.getItem(ESTATE_METRICS_KEY); d = raw ? JSON.parse(raw) : {}; }
     catch(e){ d = {}; }
     d.incidents = d.incidents || {rows:[], refs:[]};
     d.fmPerformance = d.fmPerformance || {rows:[], refs:[]};
@@ -2318,7 +2319,7 @@
     return d;
   }
   function saveEstateMetrics(d){
-    localStorage.setItem("estatesLedger.estateMetrics.v1", JSON.stringify(d));
+    localStorage.setItem(ESTATE_METRICS_KEY, JSON.stringify(d));
   }
 
   function mergeSectionValues(site, sectionKey, vals){
@@ -4001,6 +4002,37 @@
     showToast("Project file downloaded — import it in the Project Board (Data & Backup).");
   }
 
+  /* Every localStorage key the app owns, in one list, so export and import can't
+     drift apart. A backup that silently omits a key loses that data the moment it's
+     restored on another device — which is exactly what happened to site profiles,
+     compliance registers and the whole Board Report before this list existed.
+     ADD ANY NEW KEY HERE. Nothing else needs changing. */
+  var BACKUP_KEYS = [
+    STORAGE_KEY, SITES_KEY, CONTRACTORS_KEY, EMAILS_KEY, CONTRACTOR_EMAIL_KEY,
+    SITE_DETAILS_KEY,      // site profiles, contacts, compliance register, w3w, board metrics 1 & 3-6
+    ESTATE_METRICS_KEY,    // board report sections 2, 7, 8
+    SITE_REFS_KEY, REF_CATS_KEY,
+    PM_BOARD_KEY,          // imported Project Board snapshot
+    THEME_KEY
+  ];
+  // Vector's chat history is deliberately excluded — it's transient and can be noisy.
+
+  function collectLocalState(){
+    var store = {};
+    BACKUP_KEYS.forEach(function(k){
+      var raw = localStorage.getItem(k);
+      if(raw !== null) store[k] = raw;   // kept as raw JSON text: no re-parse, no reshaping
+    });
+    return store;
+  }
+
+  function restoreLocalState(store){
+    if(!store) return;
+    Object.keys(store).forEach(function(k){
+      if(BACKUP_KEYS.indexOf(k) !== -1) localStorage.setItem(k, store[k]);
+    });
+  }
+
   document.getElementById("exportJsonBtn").addEventListener("click", function(){
     showToast("Preparing backup…");
     idbAll().then(function(files){
@@ -4010,10 +4042,20 @@
         });
       }));
     }).then(function(fileRecords){
-      var payload = {issues:issues, sites:sites, contractors:contractors, emails:emails, files:fileRecords};
+      var payload = {
+        formatVersion: 2,
+        exportedAt: new Date().toISOString(),
+        issues: issues, sites: sites, contractors: contractors, emails: emails,  // v1 shape, kept so older builds can still read a new backup
+        localState: collectLocalState(),
+        files: fileRecords
+      };
       offerDownload("estates-ledger-backup.json", "application/json", JSON.stringify(payload));
     }).catch(function(){
-      offerDownload("estates-ledger-backup.json", "application/json", JSON.stringify({issues:issues, sites:sites, contractors:contractors, emails:emails}));
+      offerDownload("estates-ledger-backup.json", "application/json", JSON.stringify({
+        formatVersion: 2, exportedAt: new Date().toISOString(),
+        issues: issues, sites: sites, contractors: contractors, emails: emails,
+        localState: collectLocalState()
+      }));
       showToast("Backup saved without attachments — couldn't read local file storage.");
     });
   });
@@ -4049,12 +4091,27 @@
         var incoming = Array.isArray(data) ? data : (data.issues || []);
         var incomingFiles = data.files || [];
         var extra = incomingFiles.length ? (" and " + incomingFiles.length + " file(s)") : "";
-        confirmAction("Replace current ledger?", "Importing " + incoming.length + " issue(s)" + extra + " will replace everything currently in this browser. Export a backup first if unsure.", function(){
+        var older = !data.localState;
+        var warn = older
+          ? " This backup predates site profiles and Board Report data being included, so those will be left as they are on this device."
+          : "";
+        confirmAction("Replace current ledger?", "Importing " + incoming.length + " issue(s)" + extra + " will replace everything currently in this browser. Export a backup first if unsure." + warn, function(){
+          // v2 backups carry every key verbatim; restore those first, then re-read
+          restoreLocalState(data.localState);
           issues = incoming;
           sites = (data.sites && data.sites.length) ? data.sites : Array.from(new Set(issues.map(function(i){ return i.site; }).filter(Boolean))).sort();
           contractors = (data.contractors && data.contractors.length) ? data.contractors : Array.from(new Set(issues.map(function(i){ return i.assigned; }).filter(Boolean))).sort();
           emails = data.emails || emails;
           save(STORAGE_KEY, issues); save(SITES_KEY, sites); save(CONTRACTORS_KEY, contractors); save(EMAILS_KEY, emails);
+          // Every module-level cache is read once at startup, so restoring localStorage
+          // isn't enough — without this the import "succeeds" but the UI keeps showing
+          // the old (usually empty) data until a manual page reload. siteDetails is the
+          // painful one: it holds site profiles, compliance registers and board metrics.
+          siteDetails = load(SITE_DETAILS_KEY, {});
+          siteRefs = load(SITE_REFS_KEY, {});
+          refCategories = load(REF_CATS_KEY, refCategories);
+          contractorEmailMap = load(CONTRACTOR_EMAIL_KEY, contractorEmailMap);
+          applyTheme(load(THEME_KEY, null));
           idbClear().then(function(){
             return Promise.all(incomingFiles.map(function(f){
               return idbPut({id:f.id, issueId:f.issueId, kind:f.kind, site:f.site, name:f.name, type:f.type, size:f.size, addedAt:f.addedAt, blob: base64ToBlob(f.dataBase64, f.type)});
