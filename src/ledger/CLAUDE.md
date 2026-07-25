@@ -57,14 +57,44 @@ Grep for `/* ----------------` to jump between sections.
 | file storage (IndexedDB) | `openDB`/`idbPut`/`idbGet`/`idbGetByIssue`/`idbDelete`/`idbAll`. Issue attachments **and** per-site property photos both live here (photos keyed `siteImage:<site>`, `kind:"siteImage"`). |
 | rendering | `renderAll`, stat tiles, `collectReminders` (7-day issues / 30-day compliance), `renderReminders`. |
 | calendar | Month grid over issue `targetDate` + site compliance `due`. Read-only view of existing data — no new storage. |
-| sites overview / profile | `renderComparisonTable`, `renderSiteProfile` (Overview + Board Report tabs), site details/contacts/compliance/what3words/reference links. |
+| sites overview / profile | `renderComparisonTable`; `renderSiteProfile` → `siteProfileMarkup` + `wireSiteProfile` (Overview + Board Report tabs, site details/contacts/compliance/what3words/reference links). |
 | board report metrics | `METRIC_SECTIONS` — per-venue sections 1, 3–6. `ESTATE_SECTIONS_INFO` — sections 2, 7, 8 are estate-wide and live in Reports, not per site. `REQUEST_TEMPLATES` — the quarterly chase emails per data owner. |
 | estate-wide board metrics | CSV import (`importBoardCsv`) + cross-venue dashboard. Also the Project Board backup import (`importPmBackup`). |
 | site property image | Per-site photo; Mayfair ships a baked-in default in `DEFAULT_SITE_IMAGES`, overridable by upload. |
 | capital projects | `renderSiteProjects` — read-only table from the imported Project Board snapshot. |
-| form / detail drawer | Issue create/edit and the detail view (attachments, notes, email log, links, Promote to project). |
+| form / detail drawer | Issue create/edit; detail view is `openDetail` → `issueDetailMarkup` + `wireIssueDetail` (attachments, notes, email log, links, Promote to project). |
 | promote issue to Project Board | `promoteIssueToProject` + the `PM_*` maps. See the contract section below. |
 | vector assistant | Pattern-matching command parser. **Not an LLM** — it's regex/keyword matching over local data. Don't describe it to Michael as AI. |
+
+## The markup / wiring split
+
+The two big render paths follow a deliberate three-part shape — copy it if you add
+another screen, it's what keeps them readable:
+
+```
+renderX(...)      ~10 lines  orchestration: set title, innerHTML = xMarkup(...), wireX(...)
+xMarkup(...)      pure       takes data, returns an HTML string, touches no DOM
+wireX(...)        binds      attaches listeners once that markup is in the document
+```
+
+Applied to `renderSiteProfile` / `siteProfileMarkup` / `wireSiteProfile` and
+`openDetail` / `issueDetailMarkup` / `wireIssueDetail`. Keeping the markup half pure
+means you can reason about (or test) what gets rendered without a DOM.
+
+**Functions deliberately left long — don't "tidy" these:**
+
+- `vectorHandle` (~120 lines) is a flat command dispatcher: ~30 branches, no markup, no
+  listeners. A dispatch chain belongs in one place; splitting it into per-command
+  functions means jumping around the file to follow a single decision.
+- `renderMetricSectionBody` (~137 lines) branches on `section.repeating` into two
+  rendering paths that share their tail (supporting-documents block, save handler).
+  Splittable, but the halves interleave — lower value than the two above and more
+  regression risk. Fine to leave; if you do split it, split on `repeating` and re-run
+  the suite.
+
+Line count on its own isn't the trigger. Median function here is ~8 lines across ~160
+functions; the two that were split were doing two genuinely different jobs, not merely
+long.
 
 ## Storage keys
 
