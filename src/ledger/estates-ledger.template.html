@@ -1603,6 +1603,9 @@
   document.getElementById("tabSiteBtn").addEventListener("click", function(){ setSitesTab("site"); });
   document.getElementById("tabCategoryBtn").addEventListener("click", function(){ setSitesTab("category"); });
 
+  /* Split three ways so each part can be read on its own: the title bar, the
+     body markup (pure — takes stats, returns a string, touches no DOM), and the
+     event wiring that runs once that markup is in the document. */
   function renderSiteProfile(site){
     sitesOverlay.classList.add("open");
     document.getElementById("sitesModalTabs").style.display = "none";
@@ -1610,7 +1613,11 @@
     document.getElementById("sitesModalTitle").innerHTML =
       '<button class="icon-btn" id="sitesBackBtn" aria-label="Back to all sites" style="margin-right:6px;vertical-align:middle;">←</button>'+
       '<span class="sev-dot" style="'+siteColorCss(site)+'display:inline-block;margin-right:6px;vertical-align:middle;"></span>'+escapeHtml(site);
+    document.getElementById("sitesModalBody").innerHTML = siteProfileMarkup(site, r);
+    wireSiteProfile(site);
+  }
 
+  function siteProfileMarkup(site, r){
     var html = '<div class="profile-tabs">'+
       '<button class="profile-tab active" data-ptab="overview">Overview</button>'+
       '<button class="profile-tab" data-ptab="board">Board Report</button>'+
@@ -1706,8 +1713,10 @@
     html += '</div>'; // /profileOverviewPane
 
     html += '<div id="profileBoardPane" style="display:none;">' + renderBoardReportPane(site) + '</div>';
+    return html;
+  }
 
-    document.getElementById("sitesModalBody").innerHTML = html;
+  function wireSiteProfile(site){
     renderSiteImage(site);
     renderSiteProjects(site);
     renderRefCatList();
