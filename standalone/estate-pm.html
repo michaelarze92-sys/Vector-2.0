@@ -1,4 +1,18 @@
 <title>Metropolitan Estates — Project & Compliance Board</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--
+  PWA installability (manifest + icons) only resolves when this file is served with
+  its sibling files present — i.e. from GitHub Pages, not the Claude Artifact link.
+  On the Artifact these tags simply find nothing and are ignored; that's expected,
+  not a bug — Artifacts don't support installation regardless.
+-->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#123526">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Estates PM">
 <style>
   /* ---------- Design tokens ---------- */
   :root {
@@ -1767,5 +1781,14 @@
   /* ============================== INIT ============================== */
   renderNav();
   renderPage();
+
+  // Installs a service worker for offline support + "Add to Home Screen".
+  // Silently does nothing where there's no sibling sw.js to find (e.g. the
+  // Claude Artifact link) — that's expected, not an error.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
 })();
 </script>
