@@ -568,6 +568,26 @@
   }
   .toast.show{ opacity:1; transform:translate(-50%,0); }
 
+  /* Deliberately a dismissible prompt, never an automatic reload: you could be
+     mid-way through typing an issue on a gaming floor, and reloading under you
+     would bin it. */
+  .update-bar{
+    position:fixed; left:50%; bottom:24px; transform:translate(-50%,12px);
+    display:none; align-items:center; gap:12px; z-index:61;
+    background:var(--ink); color:var(--bg); padding:9px 10px 9px 16px;
+    border-radius:var(--radius); box-shadow:var(--shadow);
+    font-size:.82rem; opacity:0; transition:opacity .18s ease, transform .18s ease;
+    max-width:calc(100vw - 32px);
+  }
+  .update-bar.show{ display:flex; opacity:1; transform:translate(-50%,0); }
+  .update-bar button{
+    border:1px solid var(--bg); background:transparent; color:var(--bg);
+    border-radius:var(--radius); padding:5px 11px; font-size:.78rem; font-weight:600;
+    cursor:pointer; font-family:inherit; white-space:nowrap;
+  }
+  .update-bar button.primary{ background:var(--bg); color:var(--ink); }
+  .update-bar button:hover{ filter:brightness(1.15); }
+
   input[type="file"]{ display:none; }
 
   @media (max-width:720px){
@@ -919,6 +939,11 @@
 <input type="file" id="cameraInput" accept="image/*" capture="environment">
 
 <div class="toast" id="toast"></div>
+<div class="update-bar" id="updateBar" role="status">
+  <span>A newer version is ready.</span>
+  <button class="primary" id="updateReloadBtn">Reload</button>
+  <button id="updateDismissBtn" aria-label="Dismiss">Later</button>
+</div>
 
 <script>
 (function(){
@@ -4520,8 +4545,48 @@
      file://, and blocked in sandboxed iframes. The app works fine without it. */
   if("serviceWorker" in navigator && window.isSecureContext
      && document.querySelector('link[rel="manifest"]')){
+
+    /* Captured before registering. On a first-ever visit there's no controller yet,
+       so the claim that follows install must NOT be mistaken for an update. */
+    var hadControllerAtLoad = !!navigator.serviceWorker.controller;
+    var updateBar = document.getElementById("updateBar");
+    var updatePrompted = false;
+
+    function offerUpdate(){
+      if(updatePrompted || !updateBar) return;
+      updatePrompted = true;
+      updateBar.classList.add("show");
+    }
+    if(updateBar){
+      document.getElementById("updateReloadBtn").addEventListener("click", function(){
+        updateBar.classList.remove("show");
+        location.reload();
+      });
+      document.getElementById("updateDismissBtn").addEventListener("click", function(){
+        // stays dismissed for this session; the new version loads next time anyway
+        updateBar.classList.remove("show");
+      });
+    }
+
     window.addEventListener("load", function(){
-      navigator.serviceWorker.register("sw.js").catch(function(){ /* not installable here */ });
+      navigator.serviceWorker.register("sw.js").then(function(reg){
+        /* The worker calls skipWaiting + clients.claim, so a new version takes control
+           of this page as soon as it installs — controllerchange is the signal. The page
+           is still showing the OLD markup at that point, hence the offer to reload. */
+        navigator.serviceWorker.addEventListener("controllerchange", function(){
+          if(hadControllerAtLoad) offerUpdate();
+        });
+        /* Belt and braces: if a worker is sitting in `waiting` (skipWaiting having been
+           blocked, e.g. by another open tab), surface the same prompt. */
+        if(reg.waiting && hadControllerAtLoad) offerUpdate();
+        reg.addEventListener("updatefound", function(){
+          var incoming = reg.installing;
+          if(!incoming) return;
+          incoming.addEventListener("statechange", function(){
+            if(incoming.state === "installed" && hadControllerAtLoad) offerUpdate();
+          });
+        });
+      }).catch(function(){ /* not installable here */ });
     });
   }
 })();
