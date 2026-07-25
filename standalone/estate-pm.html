@@ -195,6 +195,9 @@
   .nav-item.active svg { opacity: 1; }
   .nav-spacer { flex: 1; }
   .nav-foot { padding: 10px; font-size: 11px; color: var(--felt-ink-muted); line-height: 1.5; }
+  .theme-toggle { display: inline-flex; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 999px; padding: 3px; gap: 2px; margin-bottom: 8px; }
+  .theme-toggle button { border: none; background: none; padding: 5px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--felt-ink-muted); cursor: pointer; }
+  .theme-toggle button.active { background: rgba(255,255,255,0.16); color: var(--felt-ink); }
 
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
@@ -504,6 +507,9 @@
   .banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 600; }
   .banner-info { background: var(--accent-soft); color: var(--accent-soft-ink); }
 
+  .update-toast { display: none; position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 60; box-shadow: var(--shadow); max-width: min(420px, calc(100vw - 24px)); }
+  .update-toast button { flex: none; margin-left: 4px; }
+
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -542,6 +548,10 @@
 <dialog class="modal" id="projectDialog"></dialog>
 <dialog class="modal" id="costDialog"></dialog>
 <div class="toast" id="toast"></div>
+<div class="update-toast banner banner-info" id="updateToast">
+  <span>Update available — you're a version behind.</span>
+  <button type="button" class="btn btn-accent" id="updateReloadBtn">Reload</button>
+</div>
 
 <script>
 (function () {
@@ -625,6 +635,26 @@
   }
   function save() { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
 
+  /* ---------- Theme (separate from app state — a display setting, not data) ---------- */
+  const THEME_KEY = "metroEstatesPM.theme"; // "light" | "dark" | absent = follow system
+  function getTheme() { try { return localStorage.getItem(THEME_KEY) || "auto"; } catch (e) { return "auto"; } }
+  function applyTheme(theme) {
+    const root = document.documentElement;
+    if (theme === "light" || theme === "dark") root.setAttribute("data-theme", theme);
+    else root.removeAttribute("data-theme");
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      const dark = theme === "dark" || (theme === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      meta.setAttribute("content", dark ? "#0e2119" : "#123526");
+    }
+  }
+  function setTheme(theme) {
+    try { theme === "auto" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+    applyTheme(theme);
+    renderNav();
+  }
+  applyTheme(getTheme());
+
   function venueById(id) { return state.venues.find(v => v.id === id); }
   function projectById(id) { return state.projects.find(p => p.id === id); }
   function taskById(id) { return state.tasks.find(t => t.id === id); }
@@ -679,7 +709,13 @@
       const active = p.id === activePage || (p.id === "projects" && activePage === "project-detail");
       return `<li><button class="nav-item ${active ? "active" : ""}" data-nav="${p.id}">${p.icon}<span>${p.label}</span></button></li>`;
     }).join("");
-    document.getElementById("navFoot").textContent = "Saved to this browser only — export a backup from Data & Backup to move it.";
+    const theme = getTheme();
+    document.getElementById("navFoot").innerHTML = `
+      <div class="theme-toggle" role="group" aria-label="Theme">
+        ${["auto", "light", "dark"].map(t => `<button type="button" class="${t === theme ? "active" : ""}" data-theme-choice="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}
+      </div>
+      <div>Saved to this browser only — export a backup from Data &amp; Backup to move it.</div>
+    `;
   }
 
   function go(pageId) { activePage = pageId; renderNav(); renderPage(); closeNav(); }
@@ -687,6 +723,9 @@
 
   document.getElementById("navList").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-nav]"); if (!btn) return; go(btn.dataset.nav);
+  });
+  document.getElementById("navFoot").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-theme-choice]"); if (!btn) return; setTheme(btn.dataset.themeChoice);
   });
 
   function openNav() { document.getElementById("nav").classList.add("open"); document.getElementById("navBackdrop").classList.add("show"); }
@@ -1785,9 +1824,37 @@
   // Installs a service worker for offline support + "Add to Home Screen".
   // Silently does nothing where there's no sibling sw.js to find (e.g. the
   // Claude Artifact link) — that's expected, not an error.
+  function showUpdateToast(registration) {
+    const el = document.getElementById("updateToast");
+    el.style.display = "flex";
+    document.getElementById("updateReloadBtn").onclick = () => {
+      if (registration.waiting) registration.waiting.postMessage({ type: "SKIP_WAITING" });
+    };
+  }
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      navigator.serviceWorker.register('sw.js').then((reg) => {
+        if (reg.waiting) showUpdateToast(reg);
+        reg.addEventListener('updatefound', () => {
+          const installing = reg.installing;
+          if (!installing) return;
+          installing.addEventListener('statechange', () => {
+            // "installed" + an existing controller means this is an *update*, not the
+            // first-ever install — first install has nothing running yet to interrupt.
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateToast(reg);
+            }
+          });
+        });
+      }).catch(() => {});
+      // Deliberately not automatic: reload only once the user taps the toast, so a
+      // half-typed issue on the gaming floor never gets swept away by a background update.
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        window.location.reload();
+      });
     });
   }
 })();

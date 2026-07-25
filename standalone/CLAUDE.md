@@ -58,6 +58,46 @@ one and fixes up cross-references (`projectId`, `dependsOnTaskId`). This was a
 deliberate fix (see git history: "Make backup import merge instead of silently
 replacing everything") — do not revert to a wholesale `state = parsed` replace.
 
+## Theme
+
+Light/dark is a **display setting, not app data** — stored separately in
+`localStorage["metroEstatesPM.theme"]` (`"light"` | `"dark"` | absent = follow the OS via
+`prefers-color-scheme`), not inside `state`, so switching theme never touches
+`exportBackup()`/`importBackup()`. `getTheme()`/`applyTheme()`/`setTheme()` sit right
+after `save()` in the STATE section; the toggle itself renders inside `renderNav()`
+(`navFoot`) with a delegated click listener next to the nav-list one. `--felt`/
+`--felt-ink` (the sidebar's dark green) are intentionally the same in both themes — it's
+the brand colour, not something "light mode" should flatten — only `--page`/`--surface`/
+`--ink`/`--accent` etc. actually swap.
+
+## PWA update mechanism (`sw.js` + the update toast)
+
+`sw.js`'s cache name is a SHA-256 hash of `estate-pm.html`'s bytes (`hashCacheName()`),
+not a manually-bumped string — there's nothing to forget to bump, so a stale cache can't
+survive a deploy by omission. Because the hash lives in a module-level *promise*
+(`cacheNamePromise`) rather than a stored value, it's re-derived safely even if the
+worker gets terminated and restarted between `install`/`activate`/`fetch` events.
+
+Note the mechanism this actually catches: normal content-only edits to `estate-pm.html`
+are already kept fresh by the existing stale-while-revalidate `fetch` handler, updating
+the *same* cache object in the background — no new install cycle needed. The
+hash-rename + update-toast path exists for the other case: browsers only detect a
+service worker *update* by byte-diffing `sw.js` itself, so it fires when `sw.js`'s own
+logic changes (a caching-strategy fix, this kind of edit) — that's when you'd otherwise
+risk instance getting stuck on an old worker indefinitely.
+
+`sw.js` does **not** call `self.skipWaiting()` in `install` — a new worker sits
+`waiting` until the page's "Update available" toast (`estate-pm.html`, wired up where
+the SW registers) gets tapped, which posts `{type:"SKIP_WAITING"}` and reloads once
+`controllerchange` fires. Deliberately not automatic: this app gets used mid-task on a
+gaming floor, and an unprompted reload could drop whatever someone's mid-typing.
+
+Verified end-to-end with a local static server (not `file://` — service workers need a
+secure context) by editing `sw.js` on disk to simulate a deploy, confirming the toast
+appears, and confirming the reload swaps to the new cache — see git history around this
+CLAUDE.md entry for the throwaway test script if you need to re-verify after a future
+change to this flow.
+
 ## Testing
 
 There's no bundled test framework. This file has been verified with ad hoc Playwright
@@ -79,3 +119,8 @@ scratch files); recreate them rather than assuming they exist somewhere.
   `bottom`.** `bottom` is relative to the *containing block* (here, the whole Gantt
   timeline, not the row) — combining an inline `top` with a stylesheet `bottom` silently
   stretched a task bar down through every row below it.
+- **`registration.update()` only re-fetches and byte-diffs `sw.js` itself** — editing
+  only `estate-pm.html` and calling it does nothing (no `updatefound`, no toast). That's
+  correct, not a bug: content-only changes are already covered by the SW's
+  stale-while-revalidate `fetch` handler. To test the update-toast path, the file that
+  has to change is `sw.js`.
