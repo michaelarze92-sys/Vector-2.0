@@ -96,6 +96,29 @@ Line count on its own isn't the trigger. Median function here is ~8 lines across
 functions; the two that were split were doing two genuinely different jobs, not merely
 long.
 
+## Camera capture
+
+`#cameraInput` is a plain `<input type="file" accept="image/*" capture="environment">`,
+**not** `getUserMedia`. That's deliberate: `capture` asks the OS for the rear camera with
+no permission prompt to fail and no live-video code to maintain, and it keeps working
+inside the Artifact sandbox — where `getUserMedia` is blocked by permissions policy, the
+same restriction that breaks Vector's microphone. On desktop it degrades to a file picker.
+
+One input serves two flows, so `cameraTarget` records the destination:
+
+- `{mode:"issue", id}` — attach straight to an existing issue (detail drawer's
+  **Take photo**, or the form's when editing).
+- `{mode:"new"}` — hold in `pendingNewIssuePhotos` and show the thumbnail banner;
+  `saveForm` flushes them to IndexedDB once the issue has an id.
+
+Photos taken before an issue exists are **not** written to IndexedDB until save, so
+abandoning the form leaves no orphan blobs. `clearPendingPhotos` revokes the object URL —
+keep that if you touch this, or previews leak.
+
+The camera button sits *inside* the log form and the detail drawer, not on a floating
+button. A third fixed button in the bottom-right corner overlapped the filter bar's tap
+targets on a phone; any `position:fixed` button eventually lands on some control.
+
 ## Storage keys
 
 | Key | Holds |

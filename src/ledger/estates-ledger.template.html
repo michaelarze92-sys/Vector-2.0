@@ -299,6 +299,17 @@
     transition:transform .15s ease, filter .15s ease;
   }
   .fab:hover{ transform:scale(1.08); filter:drop-shadow(0 2px 5px rgba(0,0,0,.6)) brightness(1.15); }
+  /* The camera lives inside the log form and the detail drawer, not on a floating
+     button. A third fixed button in the bottom-right overlapped the filter bar's tap
+     targets on a phone, and any fixed button eventually lands on some control. */
+  .btn-camera{ width:100%; justify-content:center; margin-bottom:14px; }
+  .photo-pending{
+    display:flex; align-items:center; gap:10px; margin-bottom:14px; padding:8px 10px;
+    border:1px solid var(--accent); border-radius:var(--radius); background:var(--accent-soft);
+    font-size:.78rem;
+  }
+  .photo-pending img{ width:44px; height:44px; object-fit:cover; border-radius:2px; flex:0 0 auto; }
+  .photo-pending .pp-text{ flex:1; }
   .vector-fab{
     position:fixed; left:26px; bottom:22px; z-index:25;
     width:70px; height:70px; background:none; border:none; cursor:pointer;
@@ -654,6 +665,12 @@
   <div class="drawer-body">
     <form id="issueForm">
       <input type="hidden" id="f-id">
+      <button type="button" class="btn btn-camera" id="formCameraBtn">📷 Take photo</button>
+      <div class="photo-pending" id="photoPending" style="display:none;">
+        <img id="photoPendingThumb" alt="">
+        <span class="pp-text" id="photoPendingText"></span>
+        <button type="button" class="note-del" id="photoPendingClear" aria-label="Discard photo" title="Discard photo">✕</button>
+      </div>
       <div class="field">
         <label for="f-title">Title</label>
         <input type="text" id="f-title" required placeholder="e.g. Chiller 2 tripping on high pressure">
@@ -882,6 +899,11 @@
   <option value="Gaming Licence Renewal">
 </datalist>
 <input type="file" id="attachFileInput" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.msg,.eml,.txt,.csv">
+<!-- capture="environment" asks the OS for the rear camera directly. Deliberately a file
+     input rather than getUserMedia: no permission prompt to fail, no live-video code to
+     maintain, and it still works inside the Artifact sandbox where getUserMedia is blocked
+     (same restriction that breaks Vector's mic). On desktop it falls back to a file picker. -->
+<input type="file" id="cameraInput" accept="image/*" capture="environment">
 
 <div class="toast" id="toast"></div>
 
@@ -3222,6 +3244,8 @@
 
   function openForm(issue){
     document.getElementById("issueForm").reset();
+    // editing an existing issue attaches via the detail drawer, so any held photo is stale
+    if(issue) clearPendingPhotos(); else renderPendingPhotos();
     document.getElementById("f-id").value = issue ? issue.id : "";
     document.getElementById("formDrawerTitle").textContent = issue ? "Edit issue" : "Log issue";
     document.getElementById("formDeleteBtn").style.display = issue ? "inline-flex" : "none";
@@ -3286,6 +3310,11 @@
     save(STORAGE_KEY, issues);
     rememberSite(site);
     rememberContractor(issue.assigned);
+    // photos captured before this issue had an id can only be stored now
+    if(pendingNewIssuePhotos.length){
+      handleFiles(id, pendingNewIssuePhotos);
+      clearPendingPhotos();
+    }
     closeDrawers();
     renderAll();
     showToast(existing ? "Issue updated." : "Issue logged.");
@@ -3358,6 +3387,7 @@
 
     html += '<div class="detail-section">';
     html += '<span class="eyebrow">Attachments</span>';
+    html += '<div style="margin-top:8px;"><button class="btn btn-sm" id="detailCameraBtn">📷 Take photo</button></div>';
     html += '<div class="attach-zone" id="attachZone" style="margin-top:8px;">Click, or drop photos / documents here</div>';
     html += '<div class="files-grid" id="filesGrid"><div class="bd-empty">Loading…</div></div>';
     html += '</div>';
@@ -3477,6 +3507,10 @@
     document.getElementById("attachZone").addEventListener("click", function(){
       pendingAttachIssueId = issue.id;
       document.getElementById("attachFileInput").click();
+    });
+    document.getElementById("detailCameraBtn").addEventListener("click", function(){
+      cameraTarget = {mode:"issue", id: issue.id};
+      document.getElementById("cameraInput").click();
     });
     document.getElementById("attachZone").addEventListener("dragover", function(e){ e.preventDefault(); this.classList.add("drag"); });
     document.getElementById("attachZone").addEventListener("dragleave", function(){ this.classList.remove("drag"); });
@@ -3604,6 +3638,64 @@
   document.getElementById("attachFileInput").addEventListener("change", function(e){
     if(pendingAttachIssueId) handleFiles(pendingAttachIssueId, e.target.files);
     e.target.value = "";
+  });
+
+  /* ---------------- camera capture ---------------- */
+
+  /* One hidden camera input serves two flows, so cameraTarget says where the shot goes:
+       {mode:"issue", id}  attach straight to an existing issue
+       {mode:"new"}        hold it, open the log form, attach once the issue has an id
+     Photos taken before an issue exists live in pendingNewIssuePhotos until saveForm
+     flushes them — they're deliberately not written to IndexedDB until then, so
+     abandoning the form leaves nothing behind. */
+  var cameraTarget = null;
+  var pendingNewIssuePhotos = [];
+  var pendingPhotoUrl = null;
+
+  function clearPendingPhotos(){
+    pendingNewIssuePhotos = [];
+    if(pendingPhotoUrl){ URL.revokeObjectURL(pendingPhotoUrl); pendingPhotoUrl = null; }
+    var box = document.getElementById("photoPending");
+    if(box) box.style.display = "none";
+  }
+
+  function renderPendingPhotos(){
+    var box = document.getElementById("photoPending");
+    if(!box) return;
+    if(!pendingNewIssuePhotos.length){ box.style.display = "none"; return; }
+    if(pendingPhotoUrl) URL.revokeObjectURL(pendingPhotoUrl);
+    pendingPhotoUrl = URL.createObjectURL(pendingNewIssuePhotos[0]);
+    document.getElementById("photoPendingThumb").src = pendingPhotoUrl;
+    document.getElementById("photoPendingText").textContent =
+      pendingNewIssuePhotos.length === 1 ? "1 photo will attach when you save"
+                                         : pendingNewIssuePhotos.length + " photos will attach when you save";
+    box.style.display = "flex";
+  }
+
+  document.getElementById("cameraInput").addEventListener("change", function(e){
+    var files = Array.prototype.slice.call(e.target.files || []);
+    e.target.value = "";
+    if(!files.length || !cameraTarget) return;
+    if(cameraTarget.mode === "issue"){
+      handleFiles(cameraTarget.id, files);
+    } else {
+      pendingNewIssuePhotos = pendingNewIssuePhotos.concat(files);
+      renderPendingPhotos();
+      showToast("Photo ready — it attaches when you save.");
+    }
+    cameraTarget = null;
+  });
+
+  document.getElementById("formCameraBtn").addEventListener("click", function(){
+    var editingId = document.getElementById("f-id").value;
+    // editing an existing issue: attach straight away, same as the detail drawer
+    cameraTarget = editingId ? {mode:"issue", id: editingId} : {mode:"new"};
+    document.getElementById("cameraInput").click();
+  });
+
+  document.getElementById("photoPendingClear").addEventListener("click", function(){
+    clearPendingPhotos();
+    showToast("Photo discarded.");
   });
 
   function offerFileDownload(f){
