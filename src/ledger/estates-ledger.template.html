@@ -1,6 +1,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Estates Ledger</title>
+<!-- PWA-ONLY-START — build.py strips this block from the slim build. These files sit
+     beside index.html on GitHub Pages, but not beside the Artifact, where a PWA is
+     impossible anyway (sandboxed cross-origin iframe): leaving the tags in would just
+     produce 404s in the console for no benefit. -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2B0A10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Estates Ledger">
+<link rel="apple-touch-icon" href="icon-180.png">
+<!-- declared explicitly so browsers don't probe /favicon.ico and 404 -->
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<!-- PWA-ONLY-END -->
 <style>
   @font-face{font-family:'Plex Sans';font-weight:400;font-style:normal;font-display:swap;
     src:url(data:font/woff2;base64,__PLEX_SANS_400__) format('woff2');}
@@ -4499,5 +4512,17 @@
   renderSiteLegend();
   renderAll();
   refreshFileCounts();
+
+  /* Register the service worker so the app installs to the home screen and opens
+     offline. Gated on the manifest link because build.py strips that (and sw.js's
+     siblings) from the slim Artifact build — no manifest means no PWA here, so don't
+     even ask for a worker that isn't deployed. Also fail-quiet: unavailable over
+     file://, and blocked in sandboxed iframes. The app works fine without it. */
+  if("serviceWorker" in navigator && window.isSecureContext
+     && document.querySelector('link[rel="manifest"]')){
+    window.addEventListener("load", function(){
+      navigator.serviceWorker.register("sw.js").catch(function(){ /* not installable here */ });
+    });
+  }
 })();
 </script>

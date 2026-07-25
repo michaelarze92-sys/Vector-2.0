@@ -20,6 +20,7 @@ smaller in git and diffable as real files.
 """
 
 import base64
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -49,6 +50,10 @@ VIDEO_ELEMENT = re.compile(
     r'<video class="bg-video" id="bgVideo"[^>]*>.*?</video>\s*', re.DOTALL
 )
 
+# manifest/icon links point at files that sit beside index.html on Pages but not
+# beside the Artifact, where a PWA is impossible anyway — so they're stripped there.
+PWA_BLOCK = re.compile(r"<!-- PWA-ONLY-START.*?<!-- PWA-ONLY-END -->\s*", re.DOTALL)
+
 
 def build() -> int:
     template = (HERE / "estates-ledger.template.html").read_text()
@@ -77,14 +82,52 @@ def build() -> int:
         )
         return 1
 
+    slim, pwa_removed = PWA_BLOCK.subn("", slim)
+    if pwa_removed != 1:
+        print(
+            f"ERROR: expected exactly 1 PWA-ONLY block to strip, found {pwa_removed}. "
+            "Check the PWA-ONLY-START/END markers in the template.",
+            file=sys.stderr,
+        )
+        return 1
+
     (ROOT / "index.html").write_text(full)
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
     (dist / "estates-ledger-slim.html").write_text(slim)
 
+    build_id = stamp_service_worker(full)
+
     print(f"index.html                     {len(full):>10,} bytes  (GitHub Pages)")
     print(f"dist/estates-ledger-slim.html  {len(slim):>10,} bytes  (Claude Artifact)")
+    print(f"sw.js cache                    estates-ledger-{build_id}")
     return 0
+
+
+def stamp_service_worker(built_html: str) -> str:
+    """Point sw.js's cache name at a hash of this build.
+
+    Installed phones serve from cache, so a deploy that reuses the cache name can
+    leave someone on an old app indefinitely. Deriving the name from the build means
+    the cache is invalidated automatically and nobody has to remember to bump it.
+    """
+    sw_path = ROOT / "sw.js"
+    if not sw_path.is_file():
+        return "no-sw"
+    build_id = hashlib.sha256(built_html.encode()).hexdigest()[:12]
+    sw = sw_path.read_text()
+    updated = re.sub(
+        r"(const CACHE_NAME = 'estates-ledger-)[^']*(')",
+        lambda m: m.group(1) + build_id + m.group(2),
+        sw,
+        count=1,
+    )
+    if updated == sw and build_id not in sw:
+        print("WARNING: could not stamp CACHE_NAME in sw.js — check the pattern",
+              file=sys.stderr)
+    if updated != sw:
+        sw_path.write_text(updated)
+    return build_id
 
 
 if __name__ == "__main__":
