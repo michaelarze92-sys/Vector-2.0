@@ -1,0 +1,17 @@
+{
+  "name": "Metropolitan Estates — Estates Ledger",
+  "short_name": "Estates Ledger",
+  "description": "Property and SHE issue log across the Metropolitan Gaming estate — issues, compliance, site profiles and Board SHE reporting.",
+  "start_url": "./",
+  "scope": "./",
+  "id": "/Vector-2.0/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#2B0A10",
+  "theme_color": "#2B0A10",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
