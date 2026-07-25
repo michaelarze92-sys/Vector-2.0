@@ -3309,10 +3309,20 @@
 
   var currentDetailId = null;
 
+  /* Same split as renderSiteProfile: issueDetailMarkup is pure (issue in, string
+     out), wireIssueDetail attaches the handlers once that markup is in the DOM. */
   function openDetail(id){
     var issue = issues.find(function(i){ return i.id === id; });
     if(!issue) return;
     currentDetailId = id;
+    document.getElementById("detailBody").innerHTML = issueDetailMarkup(issue);
+    wireIssueDetail(issue);
+    formDrawer.classList.remove("open");
+    detailDrawer.classList.add("open");
+    overlay.classList.add("open");
+  }
+
+  function issueDetailMarkup(issue){
     var band = severityBand(issue);
     var colorVar = statusColorVar(issue.status);
 
@@ -3393,7 +3403,10 @@
     html += '<div class="notes-list" id="notesList" style="margin-top:8px;"></div>';
     html += '</div>';
 
-    document.getElementById("detailBody").innerHTML = html;
+    return html;
+  }
+
+  function wireIssueDetail(issue){
     renderNotesList(issue);
 
     document.getElementById("toggleNoteBtn").addEventListener("click", function(){
@@ -3486,10 +3499,6 @@
       renderIssueLinksList(issue);
       showToast("Link saved.");
     });
-
-    formDrawer.classList.remove("open");
-    detailDrawer.classList.add("open");
-    overlay.classList.add("open");
   }
 
   function noteHtml(n){
