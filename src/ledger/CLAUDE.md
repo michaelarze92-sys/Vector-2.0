@@ -168,6 +168,11 @@ the form and want it prefillable, add it to the `PREFILLABLE` map and nothing el
 Nothing is written on parse. The textarea is cleared once its text is in the form, so a
 half-finished paste can't be silently re-parsed later.
 
+`docs/copilot-prompts.md` holds the Outlook Copilot prompts Michael uses to produce text
+shaped for this parser. **If you change the heuristics below, update that file too** —
+its rules encode them (exact venue spellings, `by`/`due` before the date, UK date order,
+the category keyword list and its priority order).
+
 Heuristics, not AI — regex and keyword matching, no network calls (the test asserts zero
 requests). Three things in `guessDateFromText` are deliberate and easy to break:
 
