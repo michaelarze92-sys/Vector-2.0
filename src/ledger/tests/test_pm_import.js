@@ -38,6 +38,19 @@ const backup = {
   await page.click('#reportsBtn');
   await page.click('[data-rtab="import"]');
   await page.waitForTimeout(200);
+
+  /* The controls must be VISIBLE, not merely present. setInputFiles below works on a
+     hidden input, which is why this test passed for months while the import pane was
+     unusable in the browser: a global `input[type=file]{display:none}` — written for the
+     inputs that are fired from a styled button — was hiding these two as well, leaving a
+     label with nothing under it. Anything asserted only via setInputFiles needs this
+     check alongside it. */
+  for (const sel of ['#csvFileInput', '#pmFileInput']) {
+    const shown = await page.isVisible(sel);
+    console.log(`${shown ? 'ok  ' : 'FAILED:'} ${sel} is visible to a real user`);
+    if (!shown) process.exitCode = 1;
+  }
+
   await page.setInputFiles('#pmFileInput', backupPath);
   await page.waitForTimeout(300);
   const previewText = await page.textContent('#pmPreviewArea');

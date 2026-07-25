@@ -596,7 +596,23 @@
   .update-bar button.primary{ background:var(--bg); color:var(--ink); }
   .update-bar button:hover{ filter:brightness(1.15); }
 
+  /* Most file inputs here are fired programmatically from a styled button (attachments,
+     camera, backup import), so the default is hidden. The import pane's two are the
+     exception: there is no button in front of them, they ARE the control, so they opt
+     back in. Without .file-visible they render as a label with nothing under it and the
+     whole import section looks dead — which is exactly what happened. */
   input[type="file"]{ display:none; }
+  input[type="file"].file-visible{
+    display:block; width:100%; font-size:.82rem; color:var(--ink-dim);
+    background:var(--surface); border:1px dashed var(--line);
+    border-radius:var(--radius); padding:10px; cursor:pointer;
+  }
+  input[type="file"].file-visible::file-selector-button{
+    font-family:inherit; font-size:.8rem; font-weight:600; margin-right:10px;
+    background:var(--surface-2); color:var(--ink); border:1px solid var(--line);
+    border-radius:var(--radius); padding:6px 12px; cursor:pointer;
+  }
+  input[type="file"].file-visible::file-selector-button:hover{ background:var(--accent-soft); border-color:var(--accent); }
 
   @media (max-width:720px){
     .stats{ grid-template-columns:1fr 1fr; }
@@ -2829,7 +2845,7 @@
     var html = '<span class="eyebrow">Board report CSV</span>';
     html += '<div class="chase-note" style="margin-top:8px;">Upload the quarterly Board SHE Report CSV (matching the Dalkia / WorkNest / Venue Director data-return format — either the 4-venue or 7-venue schema). This updates every venue\'s Board Report figures plus the estate-wide Incidents, FM Performance and Board Actions tables in one go. You\'ll see a preview before anything is saved.</div>';
     html += '<div class="subform open">'+
-      '<div class="field"><label>CSV file</label><input type="file" id="csvFileInput" accept=".csv,text/csv"></div>'+
+      '<div class="field"><label>CSV file</label><input type="file" class="file-visible" id="csvFileInput" accept=".csv,text/csv"></div>'+
       '<div class="field"><label>…or paste CSV text</label><textarea id="csvPasteInput" rows="6" style="width:100%;font-family:\'Plex Mono\',monospace;font-size:.78rem;" placeholder="Paste the header row and one data row here"></textarea></div>'+
       '<div class="subform-foot"><button class="btn btn-sm btn-primary" id="parseCsvBtn">Preview import</button></div>'+
     '</div>';
@@ -2839,7 +2855,7 @@
     html += '<div style="margin-top:26px;border-top:1px solid var(--line);padding-top:18px;">'+
       '<span class="eyebrow">Project Board backup (.json)</span>'+
       '<div class="chase-note" style="margin-top:8px;">Import a backup exported from the Project &amp; Compliance Board (Data &amp; Backup → Export backup). The Ledger reads project budgets and logged costs so each site\'s profile shows capital project spend alongside its reactive issues. The Board stays the master — nothing is edited here, and re-importing a newer backup replaces the previous snapshot.</div>'+
-      '<div class="field"><label>Backup file</label><input type="file" id="pmFileInput" accept=".json,application/json"></div>'+
+      '<div class="field"><label>Backup file</label><input type="file" class="file-visible" id="pmFileInput" accept=".json,application/json"></div>'+
       '<div id="pmPreviewArea" style="margin-top:10px;">'+
         (pm ? '<div class="chase-note">Current snapshot: '+pm.projects.length+' project(s), imported '+fmtDate(pm.importedAt.slice(0,10))+'.</div>' : '')+
       '</div>'+

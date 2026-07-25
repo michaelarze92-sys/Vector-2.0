@@ -305,6 +305,14 @@ projects onto the wrong site.
 - **`#confirmOverlay` needs `z-index: 60`**, above the full-screen Sites/Reports
   overlays (`z-index: 50`) — otherwise a confirm prompt opened from inside Sites renders
   *behind* it and can't be clicked.
+- **`input[type="file"]{ display:none }` is global**, because most file inputs here are
+  fired from a styled button. The import pane's two (`#csvFileInput`, `#pmFileInput`) are
+  the exception — nothing sits in front of them, so they need `class="file-visible"` or
+  they render as a label with nothing beneath it and the whole section looks dead. Any
+  new file input needs a decision about which kind it is.
+  **Playwright's `setInputFiles` works on a hidden input**, so a test that only sets files
+  will pass on a control no human can click — that's how this shipped. Assert
+  `isVisible()` alongside it.
 - **`window.claude.downloads` can reject** (size cap, extension allowlist). Every
   download path must fall back to a Blob + `<a download>`; `offerDownload` does this.
 - **`mailto:` and the mic are unreliable in the Artifact sandbox.** Chase-by-email is
