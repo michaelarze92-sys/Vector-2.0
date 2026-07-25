@@ -54,10 +54,37 @@ Three things here are load-bearing:
   (sandboxed cross-origin iframe). The service-worker registration is gated on the
   manifest link existing, so it disappears with the block rather than 404ing.
 
-Test with `node src/ledger/tests/test_pwa.js` — it serves the repo over
-`http://127.0.0.1` (a secure context, so workers register as they do live), mounted at
-`/Vector-2.0/` to reproduce the real subpath, then kills the network and reloads to prove
-the app genuinely opens offline.
+### How updates actually reach an installed phone
+
+Two mechanisms, and it's worth knowing which does what — measured, not assumed:
+
+1. **Stale-while-revalidate** does the routine work. Each open serves the cached copy
+   instantly, then refetches in the background, so the *next* open shows the new version.
+   A user is at most one app-open behind.
+2. **The cache-name bump** is the floor, not the routine path. When the browser notices
+   `sw.js` changed (on navigation, and at least daily) the new worker installs and
+   `activate` deletes every other `estates-ledger-*` cache. Without it, a wedged cache
+   entry has nothing to clear it.
+
+`#updateBar` closes the one-open-behind gap: `controllerchange` fires when a new worker
+claims the page, and the prompt offers a reload. **`hadControllerAtLoad` is essential** —
+the initial `clients.claim()` on a first-ever visit fires the same event, and prompting
+there would be nonsense. Never auto-reload: a half-typed issue on a gaming floor would be
+lost.
+
+### Tests
+
+- `test_pwa.js` — serves the repo over `http://127.0.0.1` (a secure context, so workers
+  register as they do live) mounted at `/Vector-2.0/` to reproduce the real subpath, then
+  kills the network and reloads to prove the app opens offline.
+- `test_update_prompt.js` — deploys a new worker mid-session and asserts a returning user
+  is prompted, a first-time visitor isn't, "Later" doesn't navigate, and stored data
+  survives. Note it *reloads once after install* before deploying: the prompt only arms on
+  a page that loaded with a controller already active, which is what a real revisit is.
+- `test_build_integrity.js` — recomputes the hash of the committed `index.html` and fails
+  if `sw.js`'s `CACHE_NAME` doesn't match. This is what makes the stale-forever trap
+  unreachable: stamping only helps if `build.py` ran, and this catches the case where it
+  didn't. Verified to fail on both a stale hash and an unstamped `__BUILD_ID__`.
 
 Still to come (Stage 3 in the *From Link to App* guide): automatic file backups via the
 File System Access API — Chrome desktop and Android only, which suits Michael (Android).
