@@ -1,0 +1,4 @@
+# test output, regenerated on every run
+*.png
+promoted-test.json
+pm-backup-test.json

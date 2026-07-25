@@ -69,17 +69,27 @@ each independent (no shared build, no shared runtime):
 
 | Path | What it is | Status |
 |---|---|---|
-| `index.html` | Estates Ledger — issue/risk log, Claude Artifact | Live, actively developed |
-| `standalone/estate-pm.html` | Project & Compliance Board — this PM tool | Live, actively developed |
+| `src/ledger/` | Estates Ledger **source** — template + assets + build + tests | Live, actively developed |
+| `index.html` | Estates Ledger **build output**. Generated — never hand-edit | Regenerate via `python3 src/ledger/build.py` |
+| `standalone/estate-pm.html` | Project & Compliance Board — the PM tool | Live, actively developed |
 | `server/` + `client/` | Node/Express/SQLite + React scaffold for a *hosted* version of the PM tool | Phase 0 scaffold only, not the active track |
 
-Both `.html` files are **single-file browser artifacts by design**: no build step, no
-bundler, no external script/font imports (the Artifact CSP blocks them), data persisted
-to that browser's `localStorage` only. That's a deliberate tradeoff for instant-link
-access on any device — don't try to "fix" it by splitting them into multiple files or
-adding a bundler; that would break the thing that makes them work. `standalone/CLAUDE.md`
-covers the PM tool's internal structure in more depth; `server/CLAUDE.md` covers the
-Node scaffold's conventions.
+Both apps **ship as single self-contained HTML files**: no framework, no bundler, no
+external script/font imports (the Artifact CSP blocks them), data persisted to that
+browser's `localStorage` only. That's a deliberate tradeoff for instant-link access on
+any device — don't "fix" it by adding a bundler or splitting the shipped file.
+
+They differ in how that file is produced, and it matters:
+
+- `standalone/estate-pm.html` **is** the source — edit it directly.
+- `index.html` is **generated** from `src/ledger/` and is ~91% base64 blobs. Edit
+  `src/ledger/estates-ledger.template.html` and rebuild; edits made straight to
+  `index.html` are silently overwritten by the next build.
+
+`src/ledger/CLAUDE.md` covers the Ledger's structure, storage keys and known gotchas;
+`standalone/CLAUDE.md` covers the PM tool's; `server/CLAUDE.md` the Node scaffold's.
+The two apps exchange data in both directions — that contract, including the venue-id
+crosswalk that has to stay in sync between them, is documented in `src/ledger/CLAUDE.md`.
 
 **Deployment**: GitHub Pages serves from the `main` branch, root folder — both `.html`
 files are reachable there (`index.html` at the repo root URL, the PM tool at
