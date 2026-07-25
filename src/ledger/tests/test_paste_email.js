@@ -158,6 +158,86 @@ const EMAIL = [
     JSON.parse(localStorage.getItem('estatesLedger.issues.v1') || '[]').length);
   check('still exactly one issue at the end', finalCount === 1, `${finalCount}`);
 
+  /* --- real Outlook paste shapes ---
+   * Ctrl+A in the reading pane does NOT give the tidy From:/Sent:/Subject: block a
+   * forward gives. It leads with the sender and a timestamp, sometimes unlabelled. The
+   * first version of this parser took the first line as the title, so the title came
+   * out as an email address, and it read the Sent: date as the deadline. */
+  const paste = async (text) => {
+    await page.click('#pasteEmailBtn');
+    await page.waitForTimeout(200);
+    await page.fill('#pasteText', text);
+    await page.click('#pasteParseBtn');
+    await page.waitForTimeout(350);
+  };
+  const closeForm = async () => { await page.click('#formCancelBtn'); await page.waitForTimeout(200); };
+
+  // (a) unlabelled reading-pane copy: sender line, timestamp, To:, then the subject
+  await paste([
+    'Dave Jones <dave.jones@dalkia.co.uk>',
+    'Fri 25/07/2026 09:14',
+    'To: Michael Arze',
+    '',
+    'Nottingham - gents WC ceiling leak',
+    '',
+    'Hi Michael,',
+    'Water coming through the ceiling above the gents on the ground floor since Wednesday.',
+    'Please can someone attend by 14 August.',
+  ].join('\n'));
+  check('unlabelled copy: title is the subject, not the address',
+    (await val('#f-title')) === 'Nottingham - gents WC ceiling leak', await val('#f-title'));
+  check('unlabelled copy: sender picked up without a From: label',
+    (await val('#f-assigned')) === 'Dave Jones', await val('#f-assigned'));
+  check('unlabelled copy: site read', (await val('#f-site')) === 'Nottingham', await val('#f-site'));
+  check('unlabelled copy: deadline beats the 25/07 timestamp',
+    (await val('#f-target')) === '2026-08-14', await val('#f-target'));
+  await closeForm();
+
+  // (b) bare address on the first line, no display name at all
+  await paste([
+    'facilities@metropolitangaming.com',
+    '25 July 2026 08:02',
+    '',
+    'Glasgow emergency lighting test overdue',
+    'The monthly flick test was missed. Needs completing by Friday.',
+  ].join('\n'));
+  check('bare address is not used as the title',
+    (await val('#f-title')) === 'Glasgow emergency lighting test overdue', await val('#f-title'));
+  check('bare address becomes the contractor',
+    (await val('#f-assigned')) === 'facilities@metropolitangaming.com', await val('#f-assigned'));
+  check('the 25 July send date is not read as the deadline',
+    (await val('#f-target')) === nextFriday, `${await val('#f-target')} (expected ${nextFriday})`);
+  await closeForm();
+
+  // (c) classic forwarded block — Sent: date must not win over the body deadline
+  await paste([
+    'From: Sarah Patel <s.patel@worknest.com>',
+    'Sent: 20 July 2026 16:40',
+    'To: Michael Arze',
+    'Subject: FW: RE: Marble Arch fire risk assessment actions',
+    '',
+    'The FRA actions from the March visit are still open. Close out by 12 August please.',
+  ].join('\n'));
+  check('stacked FW:/RE: prefixes all stripped',
+    (await val('#f-title')) === 'Marble Arch fire risk assessment actions', await val('#f-title'));
+  check('Sent: 20 July does not become the target date',
+    (await val('#f-target')) === aug12, `${await val('#f-target')} (expected ${aug12})`);
+  check('From: name still wins when labelled',
+    (await val('#f-assigned')) === 'Sarah Patel', await val('#f-assigned'));
+  await closeForm();
+
+  // (d) a deadline in the subject line must still be found
+  await paste('Subject: Park Lane lift LOLER inspection due 03/09/2026\n\nBooking needed.');
+  check('a deadline in the Subject: line is still read',
+    (await val('#f-target')) === '2026-09-03', await val('#f-target'));
+  await closeForm();
+
+  // (e) a greeting must not become the title when there is no subject anywhere
+  await paste('Hi Michael,\n\nThe Manchester chiller is tripping again. Can you look by Friday?');
+  check('greeting skipped when picking a fallback title',
+    (await val('#f-title')).startsWith('The Manchester chiller'), await val('#f-title'));
+  await closeForm();
+
   // --- it must not fire network requests; the whole app is offline-only ---
   let requested = 0;
   page.on('request', (r) => { if (!r.url().startsWith('file:')) requested++; });

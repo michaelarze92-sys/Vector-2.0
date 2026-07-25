@@ -187,6 +187,27 @@ requests). Three things in `guessDateFromText` are deliberate and easy to break:
   comes back as the day before. Dates in this app are `YYYY-MM-DD` strings throughout,
   never `Date` objects.
 
+**Outlook's real paste shape is the thing to test against.** Ctrl+A in the reading pane
+does *not* produce the tidy `From:/Sent:/Subject:` block a forward does — it leads with
+the sender and a timestamp, frequently unlabelled:
+
+```
+Dave Jones <dave.jones@dalkia.co.uk>
+Fri 25/07/2026 09:14
+To: Michael Arze
+```
+
+That block broke two guesses in the first version, both reported from real use: with no
+`Subject:` label the title fell back to line one and came out as an email address, and
+the date scan found the *sent* date before reaching the deadline. `isHeaderNoise()` now
+identifies those lines and both guesses step over them; `withoutSentDates()` drops only
+the date-bearing headers before the date scan, keeping `Subject:` because a deadline
+really does appear there. `senderName()` covers the unlabelled sender line.
+
+Five shapes are in `test_paste_email.js` — unlabelled copy, bare address, forwarded
+block, deadline-in-subject, greeting-only. **Add any new Outlook shape as a test there
+rather than fixing it by eye**; every one of these regressed something else on the way in.
+
 `guessSiteFromText` matches longest name first (so "Park Lane" isn't shadowed) and returns
 `""` rather than a wrong guess — the form still requires a site, which is the intended
 backstop. `guessCategoryFromText` reuses Vector's `CATEGORY_KEYWORDS`, which is an array

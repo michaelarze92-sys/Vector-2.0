@@ -3409,24 +3409,78 @@
     return "";
   }
 
+  /* Outlook's own copy is not the tidy "From:/Sent:/Subject:" block you get from a
+     forward. Ctrl+A in the reading pane leads with the sender and a timestamp, often
+     with no labels at all:
+
+         Dave Jones <dave.jones@dalkia.co.uk>
+         Fri 25/07/2026 09:14
+         To: Michael Arze
+
+     Left unrecognised, that block poisons two guesses: with no "Subject:" line the
+     title falls back to the first line and comes out as an email address, and the date
+     scan finds the SENT date before it ever reaches the deadline in the body. So the
+     header lines are identified once, and both guesses step over them. */
+  var HEADER_LABEL = /^(?:from|to|cc|bcc|sent|date|received|subject|reply[-\s]?to|importance|sensitivity|attachments?)\s*:/i;
+  var ADDRESS_ONLY = /^<?[^@\s<>]+@[^@\s<>]+\.[a-z]{2,}>?$/i;
+  var NAME_AND_ADDRESS = /^[^<>@]{1,60}<[^@\s<>]+@[^@\s<>]+>$/;
+  var SENT_LABEL = /^(?:sent|date|received)\s*:/i;
+  var GREETING = /^(?:hi|hello|hey|dear|good\s+(?:morning|afternoon|evening))\b[^.!?]{0,40}$/i;
+
+  /* A short line carrying a date, plus either a clock time or a leading weekday —
+     "Fri 25/07/2026 09:14", "25 July 2026 09:14". Length-capped so a real sentence
+     that happens to mention a date isn't mistaken for a header. */
+  function isTimestampLine(line){
+    if(line.length > 44) return false;
+    if(!/\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(line)) return false;
+    return /\d{1,2}:\d{2}/.test(line) || /^(?:mon|tue|wed|thu|fri|sat|sun)/i.test(line);
+  }
+
+  function isHeaderNoise(line){
+    return !line || HEADER_LABEL.test(line) || ADDRESS_ONLY.test(line)
+        || NAME_AND_ADDRESS.test(line) || isTimestampLine(line);
+  }
+
+  /* Only the date-bearing headers are dropped before the date scan — Subject: is kept,
+     because a deadline genuinely does turn up there ("LOLER inspection due 03/09/2026"). */
+  function withoutSentDates(text){
+    return text.split("\n").filter(function(l){
+      var t = l.trim();
+      return !SENT_LABEL.test(t) && !isTimestampLine(t);
+    }).join("\n");
+  }
+
+  /* "Dave Jones <dave@dalkia.co.uk>" → "Dave Jones"; a bare address stands for itself. */
+  function senderName(value){
+    var m = value.match(/^\s*([^<]*?)\s*<([^>]+)>\s*$/);
+    if(m) return (m[1] || "").replace(/^["']|["']$/g, "").trim() || m[2].trim();
+    return value.replace(/^["']|["']$/g, "").trim();
+  }
+
   function parseEmailText(text){
     var lines = text.split("\n").map(function(l){ return l.trim(); });
-    var nonEmpty = lines.filter(Boolean);
-    var subjectLine = lines.find(function(l){ return /^subject:/i.test(l); });
-    var fromLine = lines.find(function(l){ return /^from:/i.test(l); });
+    var subjectLine = lines.find(function(l){ return /^subject\s*:/i.test(l); });
+    var fromLine = lines.find(function(l){ return /^from\s*:/i.test(l); });
 
     var title = "";
     if(subjectLine){
-      title = subjectLine.replace(/^subject:\s*/i, "").replace(/^(re|fwd?|fw):\s*/i, "").trim();
-    } else if(nonEmpty[0]){
-      title = nonEmpty[0].slice(0, 90);
+      title = subjectLine.replace(/^subject\s*:\s*/i, "")
+                         .replace(/^(?:(?:re|fwd?|fw)\s*:\s*)+/i, "")   // "RE: FW: RE:" strips whole
+                         .trim();
+    }
+    if(!title){
+      // no Subject: label — the first line that is neither header plumbing nor "Hi Michael,"
+      var firstReal = lines.find(function(l){ return !isHeaderNoise(l) && !GREETING.test(l); });
+      title = (firstReal || "").replace(/^(?:(?:re|fwd?|fw)\s*:\s*)+/i, "").slice(0, 90);
     }
 
     var assigned = "";
     if(fromLine){
-      var m = fromLine.match(/^from:\s*([^<]*?)(?:<([^>]+)>)?\s*$/i);
-      if(m) assigned = (m[1] || "").trim().replace(/["<>]/g, "");
-      if(!assigned && m && m[2]) assigned = m[2].trim();   // address only, no display name
+      assigned = senderName(fromLine.replace(/^from\s*:\s*/i, ""));
+    } else {
+      // unlabelled copy: the sender is the first line that is just a name and address
+      var senderLine = lines.find(function(l){ return NAME_AND_ADDRESS.test(l) || ADDRESS_ONLY.test(l); });
+      if(senderLine) assigned = senderName(senderLine);
     }
 
     return {
@@ -3434,7 +3488,7 @@
       site: guessSiteFromText(text),
       category: guessCategoryFromText(text),
       assigned: assigned,
-      targetDate: guessDateFromText(text),
+      targetDate: guessDateFromText(withoutSentDates(text)),
       description: text.trim()   // keep the whole email, so nothing is lost to a bad guess
     };
   }
