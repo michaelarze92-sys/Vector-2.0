@@ -98,6 +98,26 @@ appears, and confirming the reload swaps to the new cache — see git history ar
 CLAUDE.md entry for the throwaway test script if you need to re-verify after a future
 change to this flow.
 
+## Paste-an-email import ("Paste email" button, topbar)
+
+`openEmailImportModal()` takes pasted free text (an email, or a Copilot summary of
+one) and heuristically guesses a task's title, due date, sender/delegate, and matching
+project — then opens the ordinary task modal pre-filled via `openTaskModal(null,
+prefill)`, so nothing is ever saved until the person reviews and hits Save there. This
+exists as the no-IT-dependency half of a bigger ask (auto-triaging Outlook/Copilot into
+this app and the Estates Ledger): a real Microsoft Graph integration needs an Azure AD
+app registration and admin consent from the org's IT/security team, which wasn't
+confirmed as available — this heuristic bridge needs nothing from IT and works today.
+
+`parseEmailText()`/`guessDateFromText()` are regex/keyword heuristics only — there is
+**no AI or network call** involved (this file makes none, by design, the same as
+everywhere else in it). Don't expect them to be always right; they're meant to save
+typing on the obvious cases (a "Subject:" line, a "From: Name <email>" header, "by
+Friday", explicit dates), not to replace judgement. If this needs to get smarter later,
+the natural next step is the Power Automate bridge already discussed with the user
+(tag/flag an email in Outlook → logged to a CSV/Excel/SharePoint list → import that),
+not more regex here.
+
 ## Testing
 
 There's no bundled test framework. This file has been verified with ad hoc Playwright

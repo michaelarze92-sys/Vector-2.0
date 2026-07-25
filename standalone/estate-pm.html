@@ -536,6 +536,7 @@
         <input type="date" id="qaDue" />
         <button type="submit" class="btn btn-accent" id="qaSubmit">Add</button>
       </form>
+      <button class="btn" id="globalEmailImport" type="button">Paste email</button>
       <button class="btn" id="globalNewProject" type="button">New project</button>
     </div>
     <div class="content" id="content">
@@ -547,6 +548,7 @@
 <dialog class="modal" id="taskDialog"></dialog>
 <dialog class="modal" id="projectDialog"></dialog>
 <dialog class="modal" id="costDialog"></dialog>
+<dialog class="modal" id="emailImportDialog"></dialog>
 <div class="toast" id="toast"></div>
 <div class="update-toast banner banner-info" id="updateToast">
   <span>Update available — you're a version behind.</span>
@@ -585,6 +587,7 @@
     menu: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>',
     upload: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><polyline points="7 14 12 9 17 14"/><path d="M4 5h16"/></svg>',
     trash: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+    mail: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
   };
   const STATUS_ICON = { "Not Started": ICON.circle, "In Progress": ICON.play, "Blocked": ICON.stop, "Done": ICON.check };
   const STATUS_CLASS = { "Not Started": "notstarted", "In Progress": "inprogress", "Blocked": "blocked", "Done": "done" };
@@ -734,6 +737,8 @@
   document.getElementById("hamburgerBtn").addEventListener("click", openNav);
   document.getElementById("globalNewProject").innerHTML = ICON.plus + " New project";
   document.getElementById("globalNewProject").addEventListener("click", () => openProjectModal(null));
+  document.getElementById("globalEmailImport").innerHTML = ICON.mail + " Paste email";
+  document.getElementById("globalEmailImport").addEventListener("click", openEmailImportModal);
   document.getElementById("navBackdrop").addEventListener("click", closeNav);
 
   /* ============================== QUICK ADD ============================== */
@@ -1598,15 +1603,136 @@
   }
 
   /* ============================== TASK MODAL ============================== */
-  function openTaskModal(id) {
+  function openTaskModal(id, prefill) {
     const dlg = document.getElementById("taskDialog");
     const existing = id ? taskById(id) : null;
-    const draft = existing ? JSON.parse(JSON.stringify(existing)) : {
+    const draft = existing ? JSON.parse(JSON.stringify(existing)) : Object.assign({
       id: null, projectId: null, venueId: null, name: "", ownerName: "", ownerEmail: "",
       startDate: todayISO(), dueDate: "", status: "Not Started", priority: "Medium",
       dependsOnTaskId: null, boardInputRequired: false, notes: "", checklist: [], progressPct: 0,
-    };
+    }, prefill || {});
     renderTaskModal(dlg, draft, !!existing);
+    dlg.showModal();
+  }
+
+  /* ---------- Paste-an-email import (heuristic, no external calls) -----------
+     Guesses a title/due date/sender/project from pasted email or Copilot-summary
+     text, then opens the ordinary task modal pre-filled — nothing is ever saved
+     until the person reviews it there and hits Save. There's no AI or network
+     call here (this file makes none, by design); it's regex/keyword heuristics
+     only, so it's meant to save typing on the obvious cases, not be always right. */
+  const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+  function guessDateFromText(text) {
+    const lower = text.toLowerCase();
+    const today = parseISO(todayISO());
+
+    if (/\btoday\b/.test(lower)) return todayISO();
+    if (/\btomorrow\b/.test(lower)) return addDays(todayISO(), 1);
+
+    const nextWeekday = lower.match(/\bnext\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+    if (nextWeekday) {
+      const targetDow = WEEKDAY_NAMES.indexOf(nextWeekday[1]);
+      const delta = ((targetDow - today.getDay() + 7) % 7) || 7;
+      return addDays(todayISO(), delta);
+    }
+    const byWeekday = lower.match(/\bby\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+    if (byWeekday) {
+      const targetDow = WEEKDAY_NAMES.indexOf(byWeekday[1]);
+      const delta = ((targetDow - today.getDay() + 7) % 7) || 7;
+      return addDays(todayISO(), delta);
+    }
+
+    const iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+    // UK-style DD/MM(/YYYY) — assume UK date order, not US, for this user base.
+    const ukNumeric = text.match(/\b(\d{1,2})[\/.](\d{1,2})(?:[\/.](\d{2,4}))?\b/);
+    if (ukNumeric) {
+      const day = +ukNumeric[1], month = +ukNumeric[2];
+      if (day <= 31 && month <= 12) {
+        let year = ukNumeric[3] ? +ukNumeric[3] : today.getFullYear();
+        if (year < 100) year += 2000;
+        const candidate = new Date(year, month - 1, day);
+        if (!ukNumeric[3] && candidate < today) candidate.setFullYear(year + 1);
+        return toISO(candidate);
+      }
+    }
+
+    const dayThenMonth = lower.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?\b/);
+    if (dayThenMonth) {
+      const day = +dayThenMonth[1], month = MONTH_NAMES.indexOf(dayThenMonth[2]);
+      let year = dayThenMonth[3] ? +dayThenMonth[3] : today.getFullYear();
+      const candidate = new Date(year, month, day);
+      if (!dayThenMonth[3] && candidate < today) candidate.setFullYear(year + 1);
+      return toISO(candidate);
+    }
+    const monthThenDay = lower.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/);
+    if (monthThenDay) {
+      const month = MONTH_NAMES.indexOf(monthThenDay[1]), day = +monthThenDay[2];
+      let year = monthThenDay[3] ? +monthThenDay[3] : today.getFullYear();
+      const candidate = new Date(year, month, day);
+      if (!monthThenDay[3] && candidate < today) candidate.setFullYear(year + 1);
+      return toISO(candidate);
+    }
+    return "";
+  }
+
+  function parseEmailText(text) {
+    const lines = text.split("\n").map(l => l.trim());
+    const nonEmpty = lines.filter(Boolean);
+    const subjectLine = lines.find(l => /^subject:/i.test(l));
+    const fromLine = lines.find(l => /^from:/i.test(l));
+
+    let name = "";
+    if (subjectLine) name = subjectLine.replace(/^subject:\s*/i, "").replace(/^(re|fwd?):\s*/i, "").trim();
+    else if (nonEmpty[0]) name = nonEmpty[0].slice(0, 90);
+
+    let ownerName = "", ownerEmail = "";
+    if (fromLine) {
+      const m = fromLine.match(/^from:\s*([^<]*?)(?:<([^>]+)>)?\s*$/i);
+      if (m) { ownerName = (m[1] || "").trim().replace(/["<>]/g, ""); ownerEmail = (m[2] || "").trim(); }
+    }
+    if (!ownerEmail) {
+      const emailMatch = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+      if (emailMatch) ownerEmail = emailMatch[0];
+    }
+
+    const matchingProject = state.projects.find(p => p.name && text.toLowerCase().includes(p.name.toLowerCase()));
+
+    return {
+      name: name || "Untitled — from pasted email",
+      ownerName, ownerEmail,
+      dueDate: guessDateFromText(text),
+      projectId: matchingProject ? matchingProject.id : null,
+      notes: text.trim(),
+    };
+  }
+
+  function openEmailImportModal() {
+    const dlg = document.getElementById("emailImportDialog");
+    dlg.innerHTML = `
+      <div class="modal-head"><h3>Paste an email or Copilot summary</h3><button class="icon-x" data-close>${ICON.x}</button></div>
+      <div class="modal-body">
+        <div style="font-size:12.5px;color:var(--ink-muted);line-height:1.5">
+          Paste the email text — or a Copilot summary of it — below. This guesses a title, due date, sender and matching project from what's pasted. Nothing is saved yet: it opens the task form next for you to check and confirm.
+        </div>
+        <div class="field"><textarea id="eiText" style="min-height:220px" placeholder="Paste email text here…"></textarea></div>
+      </div>
+      <div class="modal-foot">
+        <span></span>
+        <div style="display:flex;gap:8px"><button class="btn" data-close>Cancel</button><button class="btn btn-accent" id="eiParse">Parse into task</button></div>
+      </div>
+    `;
+    dlg.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => dlg.close()));
+    dlg.querySelector("#eiParse").addEventListener("click", () => {
+      const text = dlg.querySelector("#eiText").value.trim();
+      if (!text) return;
+      const prefill = parseEmailText(text);
+      dlg.close();
+      openTaskModal(null, prefill);
+    });
     dlg.showModal();
   }
 
