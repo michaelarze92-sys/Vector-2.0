@@ -1,0 +1,17 @@
+{
+  "name": "Metropolitan Estates — Project & Compliance Board",
+  "short_name": "Estates PM",
+  "description": "Estate-wide project management for casino venues — tasks, Gantt, budget, compliance.",
+  "start_url": "./estate-pm.html",
+  "scope": "./",
+  "id": "/standalone/estate-pm.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0f0c",
+  "theme_color": "#123526",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
