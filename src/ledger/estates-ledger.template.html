@@ -159,7 +159,9 @@
     text-transform:uppercase; letter-spacing:.05em; color:var(--ink);
   }
   .wordmark .sub{ font-family:'Plex Cond',sans-serif; font-weight:600; font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
-  .topbar-actions{ display:flex; align-items:center; gap:6px; }
+  /* wraps rather than overflowing — four labelled buttons plus the ⋮ menu no longer
+     fit beside the wordmark on a phone */
+  .topbar-actions{ display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px; }
 
   .icon-btn{
     display:inline-flex; align-items:center; justify-content:center;
@@ -370,6 +372,12 @@
     padding:9px 10px; color:var(--ink);
   }
   .field textarea{ resize:vertical; min-height:64px; }
+  /* Fills the drawer body so a long email is readable without scrolling a tiny box. */
+  .paste-text{
+    width:100%; min-height:min(52vh,420px); resize:vertical;
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:10px 12px; color:var(--ink); line-height:1.5; font-size:.85rem;
+  }
   .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
   .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 
@@ -620,6 +628,7 @@
       <button class="btn btn-sm" id="sitesBtn">Sites</button>
       <button class="btn btn-sm" id="reportsBtn">Reports</button>
       <button class="btn btn-sm" id="calendarBtn">Calendar</button>
+      <button class="btn btn-sm" id="pasteEmailBtn" title="Paste an email to start a new issue">Paste email</button>
       <div class="menu-wrap" id="menuWrap">
         <button class="icon-btn" id="menuBtn" title="Data &amp; export" aria-label="Data and export menu">⋮</button>
         <div class="menu" id="menu">
@@ -799,6 +808,24 @@
     <div style="flex:1;"></div>
     <button class="btn" id="formCancelBtn">Cancel</button>
     <button class="btn btn-primary" id="formSaveBtn">Save</button>
+  </div>
+</div>
+
+<!-- Paste-an-email drawer: another way into the same form as fabAdd, pre-filled -->
+<div class="drawer" id="pasteDrawer">
+  <div class="drawer-head">
+    <h2>Paste email</h2>
+    <button class="icon-btn" id="pasteCloseBtn" aria-label="Close">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="chase-note">Paste an email — or a Copilot summary of one — and this will guess a title, site, category, contractor and target date, then open the normal log form for you to check. It reads <em>Subject:</em> and <em>From:</em> lines and dates like “12 August”, “15/08/2026” or “by Friday”. Nothing is saved until you hit Save on the form.</div>
+    <textarea id="pasteText" class="paste-text" placeholder="Subject: Chiller 2 tripping on high pressure&#10;From: Dave Jones &lt;dave@dalkia.co.uk&gt;&#10;&#10;Mayfair plant room — chiller 2 has tripped three times this week. Can we have this looked at by Friday…"></textarea>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-ghost" id="pasteClearBtn">Clear</button>
+    <div style="flex:1;"></div>
+    <button class="btn" id="pasteCancelBtn">Cancel</button>
+    <button class="btn btn-primary" id="pasteParseBtn">Parse into issue</button>
   </div>
 </div>
 
@@ -983,6 +1010,26 @@
 
   function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
   function todayISO(){ var d = new Date(); return d.toISOString().slice(0,10); }
+  /* Local-time date helpers for the email parser. toISO deliberately does NOT use
+     toISOString(): that converts to UTC, so an evening date in BST comes back as the
+     day before. Dates in this app are always YYYY-MM-DD strings, never Date objects. */
+  function toISO(d){
+    return d.getFullYear() + "-" +
+           String(d.getMonth() + 1).padStart(2, "0") + "-" +
+           String(d.getDate()).padStart(2, "0");
+  }
+  function parseISO(s){
+    var p = String(s).split("-").map(Number);
+    return new Date(p[0], p[1] - 1, p[2]);
+  }
+  function addDays(iso, n){
+    var d = parseISO(iso);
+    d.setDate(d.getDate() + n);
+    return toISO(d);
+  }
+  var WEEKDAY_NAMES = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
+  var MONTH_NAMES = ["january","february","march","april","may","june","july",
+                     "august","september","october","november","december"];
   function escapeHtml(s){
     return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
       return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
@@ -3266,22 +3313,150 @@
 
   function renderAll(){ renderSiteOptions(); renderStats(); renderList(); }
 
+  /* ---------------- paste-an-email quick capture ---------------- */
+
+  /* Regex and keyword heuristics only — no AI, no network calls, consistent with the
+     rest of this app. It's here to save retyping on the obvious cases (a Subject: line,
+     a From: line, an explicit or relative date), not to be right every time. Everything
+     lands in the normal form for review; nothing saves until the user hits Save. */
+
+  /* Emails routinely carry two dates — when it was reported and when it's wanted by.
+     Scanning the deadline phrases first stops "reported today" beating "attend by
+     Friday". The cue has to sit next to the date, not merely in the same sentence:
+     "reported BY the duty manager" is the same word doing a different job.
+
+     The slice keeps the cue word, because "by"/"next" is itself part of how a bare
+     weekday is recognised. It runs to the end of the clause, allowing a "." only where
+     it isn't sentence-ending, so "by 12.08.2026" survives but "by Friday please." stops
+     at the full stop. */
+  var DEADLINE_PHRASE = /\b(?:by|due|before|deadline|no later than)\b(?:[^\n;!?.]|\.(?!\s|$)){0,40}/gi;
+
+  function guessDateFromText(text){
+    var phrases = text.match(DEADLINE_PHRASE) || [];
+    for(var i = 0; i < phrases.length; i++){
+      var hit = scanForDate(phrases[i]);
+      if(hit) return hit;
+    }
+    return scanForDate(text);
+  }
+
+  function scanForDate(text){
+    var lower = text.toLowerCase();
+    var today = parseISO(todayISO());
+
+    if(/\btoday\b/.test(lower)) return todayISO();
+    if(/\btomorrow\b/.test(lower)) return addDays(todayISO(), 1);
+
+    /* "next Friday" and "by Friday" both resolve to the coming instance of that day;
+       a match on today's own weekday means next week's, never today. */
+    var weekday = lower.match(/\b(?:next|by)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+    if(weekday){
+      var target = WEEKDAY_NAMES.indexOf(weekday[1]);
+      var delta = ((target - today.getDay() + 7) % 7) || 7;
+      return addDays(todayISO(), delta);
+    }
+
+    var iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+    if(iso) return iso[1] + "-" + iso[2] + "-" + iso[3];
+
+    // UK date order (DD/MM), not US — this is a UK estate.
+    var uk = text.match(/\b(\d{1,2})[\/.](\d{1,2})(?:[\/.](\d{2,4}))?\b/);
+    if(uk){
+      var d1 = +uk[1], m1 = +uk[2];
+      if(d1 >= 1 && d1 <= 31 && m1 >= 1 && m1 <= 12){
+        var y1 = uk[3] ? +uk[3] : today.getFullYear();
+        if(y1 < 100) y1 += 2000;
+        var c1 = new Date(y1, m1 - 1, d1);
+        if(!uk[3] && c1 < today) c1.setFullYear(y1 + 1);   // a bare date already past means next year
+        return toISO(c1);
+      }
+    }
+
+    var dayMonth = lower.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?\b/);
+    if(dayMonth){
+      var y2 = dayMonth[3] ? +dayMonth[3] : today.getFullYear();
+      var c2 = new Date(y2, MONTH_NAMES.indexOf(dayMonth[2]), +dayMonth[1]);
+      if(!dayMonth[3] && c2 < today) c2.setFullYear(y2 + 1);
+      return toISO(c2);
+    }
+    var monthDay = lower.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/);
+    if(monthDay){
+      var y3 = monthDay[3] ? +monthDay[3] : today.getFullYear();
+      var c3 = new Date(y3, MONTH_NAMES.indexOf(monthDay[1]), +monthDay[2]);
+      if(!monthDay[3] && c3 < today) c3.setFullYear(y3 + 1);
+      return toISO(c3);
+    }
+    return "";
+  }
+
+  /* Longest name first, so "Park Lane" isn't shadowed by a shorter overlapping name. */
+  function guessSiteFromText(text){
+    var lower = text.toLowerCase();
+    var known = PROPERTY_ORDER.concat(sites.filter(function(s){ return PROPERTY_ORDER.indexOf(s) === -1; }));
+    var hit = known.slice().sort(function(a, b){ return b.length - a.length; })
+                   .find(function(s){ return s && lower.indexOf(s.toLowerCase()) !== -1; });
+    return hit || "";   // blank rather than a wrong guess — the form still requires one
+  }
+
+  /* Reuses the very same [regex, category] rules Vector's command parser uses, so a
+     phrase categorised one way when typed at Vector is categorised the same way when
+     pasted from an email. CATEGORY_KEYWORDS is declared further down but this only runs
+     on click, long after the script has finished executing. */
+  function guessCategoryFromText(text){
+    for(var i = 0; i < CATEGORY_KEYWORDS.length; i++){
+      if(CATEGORY_KEYWORDS[i][0].test(text)) return CATEGORY_KEYWORDS[i][1];
+    }
+    return "";
+  }
+
+  function parseEmailText(text){
+    var lines = text.split("\n").map(function(l){ return l.trim(); });
+    var nonEmpty = lines.filter(Boolean);
+    var subjectLine = lines.find(function(l){ return /^subject:/i.test(l); });
+    var fromLine = lines.find(function(l){ return /^from:/i.test(l); });
+
+    var title = "";
+    if(subjectLine){
+      title = subjectLine.replace(/^subject:\s*/i, "").replace(/^(re|fwd?|fw):\s*/i, "").trim();
+    } else if(nonEmpty[0]){
+      title = nonEmpty[0].slice(0, 90);
+    }
+
+    var assigned = "";
+    if(fromLine){
+      var m = fromLine.match(/^from:\s*([^<]*?)(?:<([^>]+)>)?\s*$/i);
+      if(m) assigned = (m[1] || "").trim().replace(/["<>]/g, "");
+      if(!assigned && m && m[2]) assigned = m[2].trim();   // address only, no display name
+    }
+
+    return {
+      title: title || "Untitled — from pasted email",
+      site: guessSiteFromText(text),
+      category: guessCategoryFromText(text),
+      assigned: assigned,
+      targetDate: guessDateFromText(text),
+      description: text.trim()   // keep the whole email, so nothing is lost to a bad guess
+    };
+  }
+
   /* ---------------- form drawer ---------------- */
 
   var overlay = document.getElementById("overlay");
   var formDrawer = document.getElementById("formDrawer");
   var detailDrawer = document.getElementById("detailDrawer");
   var vectorDrawer = document.getElementById("vectorDrawer");
+  var pasteDrawer = document.getElementById("pasteDrawer");
 
   function closeDrawers(){
     formDrawer.classList.remove("open");
     detailDrawer.classList.remove("open");
     vectorDrawer.classList.remove("open");
+    pasteDrawer.classList.remove("open");
     overlay.classList.remove("open");
   }
   overlay.addEventListener("click", closeDrawers);
 
-  function openForm(issue){
+  function openForm(issue, prefill){
     document.getElementById("issueForm").reset();
     // editing an existing issue attaches via the detail drawer, so any held photo is stale
     if(issue) clearPendingPhotos(); else renderPendingPhotos();
@@ -3303,11 +3478,32 @@
     document.getElementById("f-actual").value = issue ? issue.actualCost : "";
     document.getElementById("f-tags").value = issue ? (issue.tags||[]).join(", ") : "";
 
+    /* Optional prefill for a NEW issue (the paste-an-email path). Applied on top of the
+       blank defaults so it's the same form, same validation, same save path — just fewer
+       empty fields. Only non-empty guesses overwrite, so a failed guess leaves the
+       default rather than blanking it. Ignored when editing an existing issue. */
+    if(!issue && prefill){
+      Object.keys(PREFILLABLE).forEach(function(key){
+        var value = prefill[key];
+        if(value === undefined || value === null || value === "") return;
+        document.getElementById(PREFILLABLE[key]).value = value;
+      });
+    }
+
     detailDrawer.classList.remove("open");
     formDrawer.classList.add("open");
     overlay.classList.add("open");
-    setTimeout(function(){ document.getElementById("f-title").focus(); }, 50);
+    // with a prefill the title is already filled, so put the cursor on the field most
+    // likely to need attention instead
+    var focusId = (!issue && prefill && !prefill.site) ? "f-site" : "f-title";
+    setTimeout(function(){ document.getElementById(focusId).focus(); }, 50);
   }
+
+  var PREFILLABLE = {
+    title: "f-title", site: "f-site", category: "f-category", description: "f-desc",
+    assigned: "f-assigned", targetDate: "f-target", status: "f-status",
+    risk: "f-risk", urgency: "f-urgency", cost: "f-cost"
+  };
 
   function saveForm(){
     var title = document.getElementById("f-title").value.trim();
@@ -3371,6 +3567,43 @@
       closeDrawers(); renderAll();
       showToast("Issue deleted.");
     });
+  });
+
+  /* ---------------- paste-an-email drawer ---------------- */
+
+  /* Deliberately not its own add-path: parse, then hand the guess to openForm so the
+     issue is created by exactly the same form, validation and save as typing it by hand. */
+  var pasteText = document.getElementById("pasteText");
+
+  function openPasteDrawer(){
+    closeDrawers();
+    pasteDrawer.classList.add("open");
+    overlay.classList.add("open");
+    setTimeout(function(){ pasteText.focus(); }, 50);
+  }
+
+  document.getElementById("pasteEmailBtn").addEventListener("click", openPasteDrawer);
+  document.getElementById("pasteCloseBtn").addEventListener("click", closeDrawers);
+  document.getElementById("pasteCancelBtn").addEventListener("click", closeDrawers);
+  document.getElementById("pasteClearBtn").addEventListener("click", function(){
+    pasteText.value = "";
+    pasteText.focus();
+  });
+
+  document.getElementById("pasteParseBtn").addEventListener("click", function(){
+    var text = pasteText.value.trim();
+    if(!text){ showToast("Paste an email first."); return; }
+    var prefill = parseEmailText(text);
+    pasteText.value = "";            // consumed — the text now lives in the form
+    closeDrawers();
+    openForm(null, prefill);
+    // say what was guessed, so a wrong guess is obvious before saving rather than after
+    var got = [];
+    if(prefill.site) got.push(prefill.site);
+    if(prefill.targetDate) got.push("target " + prefill.targetDate);
+    if(prefill.assigned) got.push(prefill.assigned);
+    showToast(got.length ? "Parsed — " + got.join(" · ") + ". Check and save."
+                         : "Parsed. Pick a site, check the rest, then save.");
   });
 
   /* ---------------- detail drawer ---------------- */

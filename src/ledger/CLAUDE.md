@@ -122,6 +122,7 @@ Grep for `/* ----------------` to jump between sections.
 | estate-wide board metrics | CSV import (`importBoardCsv`) + cross-venue dashboard. Also the Project Board backup import (`importPmBackup`). |
 | site property image | Per-site photo; Mayfair ships a baked-in default in `DEFAULT_SITE_IMAGES`, overridable by upload. |
 | capital projects | `renderSiteProjects` — read-only table from the imported Project Board snapshot. |
+| email parsing | `parseEmailText` + `guessDateFromText`/`guessSiteFromText`/`guessCategoryFromText`. Feeds the paste drawer. See below. |
 | form / detail drawer | Issue create/edit; detail view is `openDetail` → `issueDetailMarkup` + `wireIssueDetail` (attachments, notes, email log, links, Promote to project). |
 | promote issue to Project Board | `promoteIssueToProject` + the `PM_*` maps. See the contract section below. |
 | vector assistant | Pattern-matching command parser. **Not an LLM** — it's regex/keyword matching over local data. Don't describe it to Michael as AI. |
@@ -155,6 +156,36 @@ means you can reason about (or test) what gets rendered without a DOM.
 Line count on its own isn't the trigger. Median function here is ~8 lines across ~160
 functions; the two that were split were doing two genuinely different jobs, not merely
 long.
+
+## Paste email
+
+`#pasteDrawer` (topbar **Paste email**) takes a pasted email or Copilot summary, guesses
+a partial issue, and hands it to `openForm(null, prefill)`. That second argument is the
+whole integration — there is **no second add-path**. Same form, same validation, same
+`saveForm`, same "Log issue" title; only the starting values differ. If you add a field to
+the form and want it prefillable, add it to the `PREFILLABLE` map and nothing else.
+
+Nothing is written on parse. The textarea is cleared once its text is in the form, so a
+half-finished paste can't be silently re-parsed later.
+
+Heuristics, not AI — regex and keyword matching, no network calls (the test asserts zero
+requests). Three things in `guessDateFromText` are deliberate and easy to break:
+
+- **`scanForDate` is split out from `guessDateFromText`** so deadline phrases can be
+  scanned before the whole text. `DEADLINE_PHRASE` requires the cue *adjacent* to the
+  date — an earlier version matched cue-containing clauses, and "Reported today **by** the
+  duty manager" then beat "attend **by** Friday" further down. The cue word stays in the
+  slice, because `by`/`next` is part of how a bare weekday is matched.
+- **Dates are UK order** (`03/09` is 3 September). A bare date already in the past rolls
+  to next year.
+- **`toISO`, not `toISOString`.** The latter converts to UTC, so an evening date in BST
+  comes back as the day before. Dates in this app are `YYYY-MM-DD` strings throughout,
+  never `Date` objects.
+
+`guessSiteFromText` matches longest name first (so "Park Lane" isn't shadowed) and returns
+`""` rather than a wrong guess — the form still requires a site, which is the intended
+backstop. `guessCategoryFromText` reuses Vector's `CATEGORY_KEYWORDS`, which is an array
+of `[regex, category]` pairs, **not** an object keyed by category.
 
 ## Camera capture
 
