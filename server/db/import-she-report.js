@@ -75,11 +75,7 @@ function checkRag(value) {
   return null;
 }
 
-function importReport(csvPath) {
-  const row = loadReportRow(csvPath);
-  const periodLabel = `${row.report_month} ${row.report_year}`.trim();
-  const db = getDb();
-
+function guardAgainstDoubleImport(db, periodLabel) {
   const alreadyImported = db.prepare(
     `SELECT COUNT(*) AS n FROM contractor_kpis WHERE period_label = ?`
   ).get(periodLabel).n;
@@ -91,27 +87,14 @@ function importReport(csvPath) {
     db.close();
     process.exit(1);
   }
+}
 
-  const venueByShortCode = new Map(
-    db.prepare('SELECT id, short_code FROM venues').all().map(v => [v.short_code, v.id])
-  );
-
+function importMilestones(db, row, venueByShortCode, periodLabel) {
   const insertMilestone = db.prepare(`
     INSERT INTO compliance_milestones (venue_id, type, rag_status, notes)
     VALUES (@venue_id, @type, @rag_status, @notes)
   `);
-  const insertKpi = db.prepare(`
-    INSERT INTO contractor_kpis
-      (contractor_name, kpi_name, target_value, this_period_value, last_period_value, rag_status, period_label)
-    VALUES (@contractor_name, @kpi_name, @target_value, @this_period_value, @last_period_value, @rag_status, @period_label)
-  `);
-  const insertTask = db.prepare(`
-    INSERT INTO tasks (name, owner_name, due_date, priority, board_input_required, notes)
-    VALUES (@name, @owner_name, @due_date, @priority, @board_input_required, @notes)
-  `);
-
-  let milestoneCount = 0, kpiCount = 0, taskCount = 0;
-
+  let count = 0;
   const importMilestone = (shortCode, type, rawValue) => {
     if (!rawValue) return; // blank field — nothing reported for this venue/period
     const venueId = venueByShortCode.get(shortCode);
@@ -122,7 +105,7 @@ function importReport(csvPath) {
       rag_status: checkRag(rawValue),
       notes: `${periodLabel}: snapshot value "${rawValue}" (no renewal date in source — set next_due_date manually)`,
     });
-    milestoneCount++;
+    count++;
   };
 
   VENUE_SHORT_CODES.forEach((code) => {
@@ -133,7 +116,16 @@ function importReport(csvPath) {
   VENUE_SUFFIXES.forEach((suffix, i) => {
     importMilestone(VENUE_SHORT_CODES[i], 'AHU Service', row[`env3_${suffix}`]);
   });
+  return count;
+}
 
+function importKpis(db, row, periodLabel) {
+  const insertKpi = db.prepare(`
+    INSERT INTO contractor_kpis
+      (contractor_name, kpi_name, target_value, this_period_value, last_period_value, rag_status, period_label)
+    VALUES (@contractor_name, @kpi_name, @target_value, @this_period_value, @last_period_value, @rag_status, @period_label)
+  `);
+  let count = 0;
   FM_KEYS.forEach((key, i) => {
     const thisVal = row[`${key}_this`], lastVal = row[`${key}_last`], rag = row[`${key}_rag`];
     if (!thisVal && !lastVal && !rag) return;
@@ -148,9 +140,17 @@ function importReport(csvPath) {
         : rag ? 'AMBER' : null,
       period_label: periodLabel,
     });
-    kpiCount++;
+    count++;
   });
+  return count;
+}
 
+function importTasks(db, row) {
+  const insertTask = db.prepare(`
+    INSERT INTO tasks (name, owner_name, due_date, priority, board_input_required, notes)
+    VALUES (@name, @owner_name, @due_date, @priority, @board_input_required, @notes)
+  `);
+  let count = 0;
   ACTION_KEYS.forEach((key) => {
     const desc = row[`${key}_desc`];
     if (!desc) return;
@@ -169,8 +169,25 @@ function importReport(csvPath) {
       board_input_required: input.trim().toUpperCase().startsWith('YES') ? 1 : 0,
       notes: notesParts.join(' | ') || null,
     });
-    taskCount++;
+    count++;
   });
+  return count;
+}
+
+function importReport(csvPath) {
+  const row = loadReportRow(csvPath);
+  const periodLabel = `${row.report_month} ${row.report_year}`.trim();
+  const db = getDb();
+
+  guardAgainstDoubleImport(db, periodLabel);
+
+  const venueByShortCode = new Map(
+    db.prepare('SELECT id, short_code FROM venues').all().map(v => [v.short_code, v.id])
+  );
+
+  const milestoneCount = importMilestones(db, row, venueByShortCode, periodLabel);
+  const kpiCount = importKpis(db, row, periodLabel);
+  const taskCount = importTasks(db, row);
 
   db.close();
   console.log(

@@ -39,6 +39,7 @@ Qualifications held: NEBOSH General Certificate, IOSH membership, a recognised F
 
 **Live projects:**
 - Estates Ledger — a personal issue/risk log built as a Claude Artifact (crimson & gold, Metropolitan Gaming branded). Tracks issues by property (Mayfair, Park Lane, Leicester Square, Marble Arch, Manchester, Glasgow, Nottingham — a working set of 7; full portfolio is 10 venues incl. Egypt), RAG severity, attachments, email audit trail, Sites/Category comparison dashboards, site detail profiles (sq ft, landlord, tenants, contractors, casino director, contacts, compliance register, what3words key locations), and a local command assistant ("Vector"). Runs entirely client-side, no backend — data lives in-browser only. Ask Claude in this project to keep building/adjusting it.
+- Project & Compliance Board (`standalone/estate-pm.html`) — an ADHD-friendly PM tool for capital/lifecycle projects: drag-to-reschedule Gantt, task delegation with subtask-level due dates and assignees, budget vs. actual tracking, a calendar, and a per-project record set (Risk Register, Decisions Log, Q&A Log, Documents Register, Key Contacts, Meeting Notes & Transcripts). Same architecture as the Ledger — single-file, client-side only, no backend. Has a matching "Promote to project" bridge from the Ledger for handing an issue over as a live project. See `standalone/CLAUDE.md` for how the file itself is organised.
 
 **Board SHE Report template** (real Metropolitan Gaming format — this is the report style the CEO liked, want to eventually generate this from the Ledger's data):
 1. Venue Compliance Snapshot — RAG score, FRA/WRA/EICR/LOLER status, EHS audit score, action owner, per venue
@@ -57,3 +58,31 @@ Format is RAG-coloured throughout (GREEN/AMBER/RED against target), one row per 
 
 **Open H&S actions:**
 - _(none logged yet)_
+
+---
+
+## Codebase map (for Claude Code sessions working on this repo)
+
+Everything above this line is the advisor persona — how to talk to Michael. Everything
+below is for a coding session orienting in this repo. Three separate things live here,
+each independent (no shared build, no shared runtime):
+
+| Path | What it is | Status |
+|---|---|---|
+| `index.html` | Estates Ledger — issue/risk log, Claude Artifact | Live, actively developed |
+| `standalone/estate-pm.html` | Project & Compliance Board — this PM tool | Live, actively developed |
+| `server/` + `client/` | Node/Express/SQLite + React scaffold for a *hosted* version of the PM tool | Phase 0 scaffold only, not the active track |
+
+Both `.html` files are **single-file browser artifacts by design**: no build step, no
+bundler, no external script/font imports (the Artifact CSP blocks them), data persisted
+to that browser's `localStorage` only. That's a deliberate tradeoff for instant-link
+access on any device — don't try to "fix" it by splitting them into multiple files or
+adding a bundler; that would break the thing that makes them work. `standalone/CLAUDE.md`
+covers the PM tool's internal structure in more depth; `server/CLAUDE.md` covers the
+Node scaffold's conventions.
+
+**Deployment**: GitHub Pages serves from the `main` branch, root folder — both `.html`
+files are reachable there (`index.html` at the repo root URL, the PM tool at
+`/standalone/estate-pm.html`). Feature work happens on dedicated branches and gets
+merged into `main` (and republished as a Claude Artifact where relevant) when it's
+ready to go live, not on every commit.
