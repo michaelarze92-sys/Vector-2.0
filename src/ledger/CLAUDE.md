@@ -384,10 +384,33 @@ Pure derivation from `issues` and each site's compliance register — it stores 
 its own, so there is no new state to keep in sync. Buckets: Overdue, Due today, Chase,
 Next 7 days, Compliance due (30 days), No target date.
 
-**Chase is the bucket with no equivalent anywhere else**: `status` matching `/await/i`
-where `lastActivityISO()` — the later of `dateReported` and the newest note — is
-`CHASE_AFTER_DAYS` (7) or more old. Those never show as overdue, because their target date
-can be weeks out, which is exactly why they slip.
+**Chase is the bucket with no equivalent anywhere else.** It lists work that is on
+someone else's desk — `status` matching `/await/i`, *or* any non-empty `assigned` — under
+**two independent triggers**, both thresholds user-settable and stored in
+`CHASE_RULES_KEY`:
+
+| Trigger | Default | Catches |
+|---|---|---|
+| quiet | nothing logged for 4 days | a job that has gone silent |
+| closing | target date within 3 days | a deadline arriving with nothing done |
+
+The first version had only the quiet rule, at 7 days and with no lead time. Michael's
+correction was that both were wrong: 7 days is too slow to notice, and a chase sent on the
+due date is useless because it is already late. Hence the second trigger — an approaching
+deadline lists a job whether or not it has been silent.
+
+`lastActivityISO()` is the later of `dateReported` and the newest note timestamp. Notes,
+logged emails and drafted chases all land in `notes` with a `ts`, so **the quiet count is
+only as good as what gets logged** — a chase made by phone and not recorded leaves the job
+looking silent. Logging it resets the clock, which is the behaviour you want anyway.
+
+Rows state their reason ("quiet 6d · due in 2d") rather than a bare date: that is what
+goes in the email. The **Chase** action opens the issue and clicks the existing
+`#openChaseBtn` composer rather than forking a second chase path.
+
+The Chase section renders **even when empty**, unlike every other section — the threshold
+inputs live inside it, and a section that vanished when empty would take the only way to
+change them with it.
 
 Quick actions write through `save()` and re-render; `+1w` moves `targetDate` on a week,
 `Done` sets Resolved and stamps `resolvedDate`. Row clicks open the issue — the action

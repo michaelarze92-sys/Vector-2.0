@@ -5,7 +5,7 @@
  * if you do, installed phones can keep serving a stale app forever, which is the
  * classic PWA trap.
  */
-const CACHE_NAME = 'estates-ledger-02d086cb9fed';
+const CACHE_NAME = 'estates-ledger-1deaeebf306b';
 
 /* The app is one self-contained HTML file: fonts, logos, video and photos are all
  * base64-inlined, so there are no other runtime requests to cache. */

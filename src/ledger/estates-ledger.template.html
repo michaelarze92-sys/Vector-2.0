@@ -620,6 +620,12 @@
   .today-voice{ width:100%; margin-bottom:18px; }
   .today-section{ margin-bottom:20px; }
   .today-note{ font-size:.74rem; color:var(--ink-dim); margin:4px 0 8px; }
+  .chase-rules{ font-size:.76rem; color:var(--ink-dim); margin:6px 0 10px; line-height:1.9; }
+  .chase-rules input{
+    width:52px; background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:3px 6px; color:var(--ink);
+    font-family:'Plex Mono',monospace; font-size:.78rem; text-align:center;
+  }
   .today-row{
     display:flex; align-items:center; gap:10px; padding:10px 4px;
     border-bottom:1px solid var(--line); cursor:pointer;
@@ -3483,7 +3489,17 @@
      "Chase" is the bucket that doesn't exist anywhere else: jobs sitting with a
      contractor where nothing has happened for a week. Those don't show as overdue —
      their target date may be weeks out — but they're the ones that quietly slip. */
-  var CHASE_AFTER_DAYS = 7;
+  /* Two independent triggers, because one wasn't enough. "Nothing logged for N days"
+     catches a job that's gone quiet, but says nothing about whether there's still time
+     to do anything about it — and a chase sent on the due date is no use, it's already
+     late by then. So a target date coming up inside leadDays also puts a job on the list,
+     silent or not.
+
+     Both thresholds are the user's to set, not mine: the right numbers depend on the
+     contractor and the job, and the first guess (7 days, no lead time at all) was wrong
+     on both counts. */
+  var CHASE_RULES_KEY = "estatesLedger.chaseRules.v1";
+  var chaseRules = load(CHASE_RULES_KEY, { quietDays: 4, leadDays: 3 });
 
   function lastActivityISO(issue){
     var latest = issue.dateReported || "";
@@ -3505,11 +3521,18 @@
       else if(d === 0) b.due.push({ issue: i, days: d });
       else if(d <= 7) b.week.push({ issue: i, days: d });
 
-      // sitting with a contractor and nothing has moved — independent of the target date
-      if(/await/i.test(i.status || "")){
+      /* Someone else owes me something. Awaiting-contractor is the obvious case; a job
+         with a named assignee counts too, since that's equally "not on my desk". */
+      if(/await/i.test(i.status || "") || (i.assigned || "").trim()){
         var last = lastActivityISO(i);
-        var age = last ? -daysUntil(last) : null;
-        if(age !== null && age >= CHASE_AFTER_DAYS) b.chase.push({ issue: i, days: age });
+        var quietFor = last ? -daysUntil(last) : null;
+        var reasons = [];
+        if(quietFor !== null && quietFor >= chaseRules.quietDays) reasons.push("quiet");
+        if(d !== null && d <= chaseRules.leadDays) reasons.push("closing");
+        if(reasons.length){
+          b.chase.push({ issue: i, quietFor: quietFor, dueIn: d, reasons: reasons,
+                         days: d === null ? 9999 : d });   // undated sink to the bottom
+        }
       }
     });
 
@@ -3527,7 +3550,10 @@
       return severityScore(y.issue || {}) - severityScore(x.issue || {});
     };
     Object.keys(b).forEach(function(k){
-      b[k].sort(k === "chase" ? function(x, y){ return y.days - x.days; } : bySeverity);
+      // chase sorts by how little time is left, then by how long it's been silent
+      b[k].sort(k === "chase"
+        ? function(x, y){ return (x.days - y.days) || ((y.quietFor || 0) - (x.quietFor || 0)); }
+        : bySeverity);
     });
     return b;
   }
@@ -3551,6 +3577,31 @@
       '<span class="today-badge" style="color:' + tone + ';">' + badge + '</span>' +
       '<span class="today-acts">' +
         '<button class="btn btn-sm" data-act="snooze" data-id="' + i.id + '" title="Push the target date on a week">+1w</button>' +
+        '<button class="btn btn-sm" data-act="done" data-id="' + i.id + '" title="Mark resolved">Done</button>' +
+      '</span>' +
+    '</div>';
+  }
+
+  /* Says why it's on the list, not just that it is — "quiet 6d · due in 2d" tells you
+     what to put in the email; a bare date doesn't. */
+  function todayChaseRowMarkup(entry){
+    var i = entry.issue;
+    var bits = [];
+    if(entry.quietFor !== null) bits.push("quiet " + entry.quietFor + "d");
+    bits.push(entry.dueIn === null ? "no date"
+            : entry.dueIn < 0 ? Math.abs(entry.dueIn) + "d overdue"
+            : entry.dueIn === 0 ? "due today" : "due in " + entry.dueIn + "d");
+    var tone = (entry.dueIn !== null && entry.dueIn <= 0) ? "var(--sev-red)" : "var(--sev-yellow)";
+    return '<div class="today-row" data-id="' + i.id + '">' +
+      '<span class="today-sev" style="' + siteColorCss(i.site) + '"></span>' +
+      '<div class="today-main">' +
+        '<div class="today-title">' + escapeHtml(i.title) + '</div>' +
+        '<div class="today-meta">' + escapeHtml(i.site) +
+          (i.assigned ? ' · ' + escapeHtml(i.assigned) : ' · unassigned') + '</div>' +
+      '</div>' +
+      '<span class="today-badge" style="color:' + tone + ';">' + bits.join(" · ") + '</span>' +
+      '<span class="today-acts">' +
+        '<button class="btn btn-sm" data-act="chase" data-id="' + i.id + '" title="Draft a chase email">Chase</button>' +
         '<button class="btn btn-sm" data-act="done" data-id="' + i.id + '" title="Mark resolved">Done</button>' +
       '</span>' +
     '</div>';
@@ -3596,7 +3647,22 @@
 
     html += section("Overdue", "", b.overdue, todayRowMarkup);
     html += section("Due today", "", b.due, todayRowMarkup);
-    html += section("Chase", "With a contractor, nothing logged for " + CHASE_AFTER_DAYS + "+ days.", b.chase, todayRowMarkup);
+
+    /* Always rendered, unlike the others — the thresholds live in here, and a section
+       that vanishes when empty would take the only way to change them with it. */
+    html += '<div class="today-section">' +
+      '<span class="eyebrow">Chase (' + b.chase.length + ')</span>' +
+      '<div class="chase-rules">' +
+        'Chase when nothing logged for ' +
+        '<input type="number" id="chaseQuietDays" min="1" max="60" value="' + chaseRules.quietDays + '"> days, ' +
+        'or the target date is within ' +
+        '<input type="number" id="chaseLeadDays" min="0" max="30" value="' + chaseRules.leadDays + '"> days.' +
+      '</div>' +
+      (b.chase.length
+        ? b.chase.map(todayChaseRowMarkup).join("")
+        : '<div class="today-note">Nothing needs chasing on those thresholds.</div>') +
+    '</div>';
+
     html += section("Next 7 days", "", b.week, todayRowMarkup);
     html += section("Compliance due", "Within 30 days, from each site's register.", b.compliance, todayComplianceRowMarkup);
     html += section("No target date", "These won't appear anywhere time-based until they have one.", b.undated, todayRowMarkup);
@@ -3627,7 +3693,18 @@
         e.stopPropagation();
         var issue = issues.find(function(i){ return i.id === btn.getAttribute("data-id"); });
         if(!issue) return;
-        if(btn.getAttribute("data-act") === "snooze"){
+        var act = btn.getAttribute("data-act");
+        if(act === "chase"){
+          // hand straight to the existing chase-email composer rather than a second path
+          document.getElementById("todayOverlay").classList.remove("open");
+          openDetail(issue.id);
+          setTimeout(function(){
+            var chaseBtn = document.getElementById("openChaseBtn");
+            if(chaseBtn) chaseBtn.click();
+          }, 120);
+          return;
+        }
+        if(act === "snooze"){
           issue.targetDate = addDays(issue.targetDate || todayISO(), 7);
           showToast("Pushed to " + fmtDate(issue.targetDate) + ".");
         } else {
@@ -3642,6 +3719,18 @@
     });
     var voice = document.getElementById("todayVoiceBtn");
     if(voice) voice.addEventListener("click", startVoiceCapture);
+
+    [["chaseQuietDays", "quietDays"], ["chaseLeadDays", "leadDays"]].forEach(function(pair){
+      var input = document.getElementById(pair[0]);
+      if(!input) return;
+      input.addEventListener("change", function(){
+        var n = parseInt(input.value, 10);
+        if(isNaN(n) || n < 0) return;
+        chaseRules[pair[1]] = n;
+        save(CHASE_RULES_KEY, chaseRules);
+        renderToday();
+      });
+    });
   }
 
   document.getElementById("todayBtn").addEventListener("click", function(){
@@ -4907,7 +4996,7 @@
     ESTATE_METRICS_KEY,    // board report sections 2, 7, 8
     SITE_REFS_KEY, REF_CATS_KEY,
     PM_BOARD_KEY,          // imported Project Board snapshot
-    THEME_KEY,
+    THEME_KEY, CHASE_RULES_KEY,
     LAST_BACKUP_KEY        // so a restored device knows how fresh the file it came from was
   ];
   // Vector's chat history is deliberately excluded — it's transient and can be noisy.

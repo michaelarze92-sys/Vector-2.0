@@ -28,8 +28,9 @@ const SEED = [
     risk: 3, urgency: 3, cost: 2, targetDate: iso(-5), dateReported: iso(-20), notes: [] },
   { id: 'b', title: 'Fire door closer dragging', site: 'Glasgow', category: 'Health & Safety', status: 'In Progress',
     risk: 2, urgency: 2, cost: 1, targetDate: iso(0), dateReported: iso(-3), notes: [] },
+  // assigned and due in 2 days: not silent, but too close to leave — the "closing" trigger
   { id: 'c', title: 'Roof leak above cash desk', site: 'Park Lane', category: 'Fabric & Building', status: 'Open',
-    risk: 2, urgency: 2, cost: 2, targetDate: iso(4), dateReported: iso(-1), notes: [] },
+    risk: 2, urgency: 2, cost: 2, targetDate: iso(2), dateReported: iso(-1), assigned: 'Dalkia', notes: [] },
   { id: 'd', title: 'Lift service overdue', site: 'Manchester', category: 'M&E / Plant', status: 'Awaiting Contractor',
     risk: 3, urgency: 2, cost: 2, targetDate: iso(25), dateReported: iso(-30), notes: [] },
   { id: 'e', title: 'Recently chased extractor clean', site: 'Nottingham', category: 'Other', status: 'Awaiting Contractor',
@@ -77,10 +78,53 @@ const sectionRows = (page, heading) => page.evaluate((h) => {
   check('undated bucket', JSON.stringify(await sectionRows(page, 'No target date')) === '["Signage replacement"]',
     JSON.stringify(await sectionRows(page, 'No target date')));
 
-  // the bucket that exists nowhere else
+  /* --- chase: two independent triggers ---
+   * "quiet for N days" alone fired too late — a chase sent on the due date is useless,
+   * it's already late. So an approaching target date also lists a job, silent or not. */
   const chase = await sectionRows(page, 'Chase');
-  check('chase catches the stale contractor job', JSON.stringify(chase) === '["Lift service overdue"]', JSON.stringify(chase));
-  check('chase ignores one chased two days ago', !(chase || []).some((t) => /extractor/.test(t)));
+  check('chase catches the job that has gone quiet', (chase || []).includes('Lift service overdue'),
+    JSON.stringify(chase));
+  check('chase ignores one chased two days ago (default quiet = 4)',
+    !(chase || []).some((t) => /extractor/.test(t)), JSON.stringify(chase));
+  check('chase catches a job whose deadline is closing, even though it is not silent',
+    (chase || []).includes('Roof leak above cash desk'), JSON.stringify(chase));
+
+  const chaseBadges = await page.evaluate(() => {
+    const secs = [...document.querySelectorAll('#todayModalBody .today-section')];
+    const s = secs.find((x) => x.querySelector('.eyebrow').textContent.startsWith('Chase'));
+    return [...s.querySelectorAll('.today-badge')].map((b) => b.textContent.trim());
+  });
+  console.log('      chase badges:', JSON.stringify(chaseBadges));
+  check('each row says why it is listed', chaseBadges.every((b) => /quiet \d+d|due/.test(b)),
+    JSON.stringify(chaseBadges));
+
+  // the thresholds are the user's to set — the section renders even when empty so they stay reachable
+  check('the thresholds are editable in the view', await page.isVisible('#chaseQuietDays'));
+  check('quiet days defaults to 4', (await page.inputValue('#chaseQuietDays')) === '4');
+  check('lead days defaults to 3', (await page.inputValue('#chaseLeadDays')) === '3');
+
+  await page.fill('#chaseQuietDays', '2');
+  await page.dispatchEvent('#chaseQuietDays', 'change');
+  await page.waitForTimeout(400);
+  const chaseLoose = await sectionRows(page, 'Chase');
+  check('loosening to 2 days pulls in the recently-chased job',
+    (chaseLoose || []).some((t) => /extractor/.test(t)), JSON.stringify(chaseLoose));
+  check('the threshold persists',
+    JSON.parse(await page.evaluate(() => localStorage.getItem('estatesLedger.chaseRules.v1'))).quietDays === 2);
+
+  await page.fill('#chaseQuietDays', '4');
+  await page.dispatchEvent('#chaseQuietDays', 'change');
+  await page.waitForTimeout(400);
+
+  await page.fill('#chaseLeadDays', '0');
+  await page.dispatchEvent('#chaseLeadDays', 'change');
+  await page.waitForTimeout(400);
+  const chaseTight = await sectionRows(page, 'Chase');
+  check('dropping lead days to 0 removes the not-yet-due job',
+    !(chaseTight || []).some((t) => /Roof leak/.test(t)), JSON.stringify(chaseTight));
+  await page.fill('#chaseLeadDays', '3');
+  await page.dispatchEvent('#chaseLeadDays', 'change');
+  await page.waitForTimeout(400);
 
   const all = await page.textContent('#todayModalBody');
   check('closed issues never appear', !/must not appear/.test(all));
