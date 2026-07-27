@@ -57,7 +57,11 @@ const APP = '../../../dist/estates-ledger-slim.html';
     const png = new Blob([Uint8Array.from(atob(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
     ), (c) => c.charCodeAt(0))], { type: 'image/png' });
-    const db = await new Promise((res) => { const r = indexedDB.open('estatesLedgerFiles', 1); r.onsuccess = () => res(r.result); });
+    /* No version number on purpose: opens whatever the app created. Pinning it to 1 here
+       silently broke this test the day openDB() went to 2 for the reminders digest —
+       opening below the current version throws VersionError and the promise never
+       settles, which surfaces as "promise garbage collected", not as a version error. */
+    const db = await new Promise((res) => { const r = indexedDB.open('estatesLedgerFiles'); r.onsuccess = () => res(r.result); });
     const tx = db.transaction('files', 'readwrite');
     tx.objectStore('files').put({ id: 'f1', issueId: 'i1', name: 'fan.png', type: 'image/png', size: png.size, addedAt: '2026-07-01T00:00:00.000Z', blob: png });
     tx.objectStore('files').put({ id: 'siteImage:Mayfair', kind: 'siteImage', site: 'Mayfair', name: 'front.png', type: 'image/png', size: png.size, addedAt: '2026-07-01T00:00:00.000Z', blob: png });

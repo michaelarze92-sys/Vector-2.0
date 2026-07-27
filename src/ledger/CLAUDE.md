@@ -372,3 +372,69 @@ Playwright, headless Chromium, driving the built slim file. Each test seeds
 `localStorage` directly, exercises a feature, and asserts no page/console errors — the
 suite exists because it caught the charset, table-colour and z-index bugs above. Run it
 before any push; add a test with any new feature.
+
+## Today, voice capture and reminders
+
+Three parts of the same idea: the app should tell you what to do, not just store what you
+told it.
+
+### Today (`#todayOverlay`)
+
+Pure derivation from `issues` and each site's compliance register — it stores nothing of
+its own, so there is no new state to keep in sync. Buckets: Overdue, Due today, Chase,
+Next 7 days, Compliance due (30 days), No target date.
+
+**Chase is the bucket with no equivalent anywhere else**: `status` matching `/await/i`
+where `lastActivityISO()` — the later of `dateReported` and the newest note — is
+`CHASE_AFTER_DAYS` (7) or more old. Those never show as overdue, because their target date
+can be weeks out, which is exactly why they slip.
+
+Quick actions write through `save()` and re-render; `+1w` moves `targetDate` on a week,
+`Done` sets Resolved and stamps `resolvedDate`. Row clicks open the issue — the action
+buttons `stopPropagation` so a tap on `+1w` doesn't also open the drawer.
+
+### Voice capture
+
+One `SpeechRecognition` instance, two destinations, switched by `voiceMode`
+(`"vector"` | `"issue"`). A second instance would read more simply but both could then be
+listening at once, and the browser only reliably supports one live capture.
+
+The transcript goes through **`parseEmailText`** — dictation and a pasted email are the
+same problem (free text in, best-guess issue out), so the venue names, category keywords
+and "by Friday" handling are shared rather than duplicated. Only `title` is overridden,
+to the spoken words.
+
+Speech needs a network round trip in Chrome and is blocked outright in the Artifact
+sandbox, same permissions policy as `getUserMedia`. It must fail *visibly* — a mic button
+that does nothing leaves you talking to a screen that isn't recording.
+
+`test_today.js` swaps `window.webkitSpeechRecognition` for a fake via `addInitScript`
+**before** the app's script runs, so the app builds its recogniser from the fake and the
+real wiring is exercised without exposing internals for the test.
+
+### Reminders
+
+What is actually possible, so it isn't re-litigated: there is no backend, so no push
+server, so nothing can be *delivered* to a closed app. Two mechanisms exist and both are
+used:
+
+1. **On open** — works everywhere, always.
+2. **`periodicsync`** — Chrome on Android, installed to the home screen only, and the
+   browser decides when it fires. "Roughly daily", never an alarm clock.
+
+**A service worker cannot read `localStorage`**, where all this app's data lives. So
+`writeReminderDigest()` writes a summary to the `digest` store in IndexedDB on every
+render, and `sw.js` reads that. This is the only channel between them.
+
+Three things that will bite:
+
+- **`openDB()` is version 2** and `sw.js`'s `DIGEST_DB_VERSION` must match. Anything else
+  opening the DB — including tests — should open with **no version** rather than pinning
+  one; opening below the current version throws `VersionError` and the promise never
+  settles, which surfaces as "promise garbage collected", not as a version error.
+- **`writeReminderDigest` is read-modify-write, never a blind put.** `notifiedOn` is the
+  once-a-day stamp; a plain put erases it on the next render — which is every few
+  seconds — and you get notified over and over. Caught by `test_reminders.js`.
+- **`notifiedOn` lives in the digest, not localStorage.** Page and worker both notify and
+  can't see each other's state any other way, so a page-side stamp lets each fire once and
+  you get two a day.

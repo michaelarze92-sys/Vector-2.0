@@ -5,7 +5,7 @@
  * if you do, installed phones can keep serving a stale app forever, which is the
  * classic PWA trap.
  */
-const CACHE_NAME = 'estates-ledger-72ec7366cec5';
+const CACHE_NAME = 'estates-ledger-02d086cb9fed';
 
 /* The app is one self-contained HTML file: fonts, logos, video and photos are all
  * base64-inlined, so there are no other runtime requests to cache. */
@@ -53,6 +53,88 @@ function isOurs(url) {
       || rest === 'manifest.json'
       || /^icon-[\w-]+\.png$/.test(rest);
 }
+
+/* ---- Reminders ----
+ *
+ * There is no backend, so there is no push server, so nothing can be *delivered* to a
+ * closed app. periodicsync is the one mechanism a backend-less PWA has for running while
+ * closed: Chrome on Android, installed to the home screen, and the browser alone decides
+ * when it fires. Treat it as "roughly daily", never as an alarm clock.
+ *
+ * A service worker cannot read localStorage, so the page writes a summary to the
+ * "digest" store in IndexedDB on every render and this reads it back. DB_VERSION must
+ * match openDB() in the app, or one of them will trigger an upgrade the other blocks.
+ */
+const DIGEST_DB = 'estatesLedgerFiles';
+const DIGEST_DB_VERSION = 2;
+
+function readDigest() {
+  return new Promise((resolve) => {
+    let req;
+    try { req = indexedDB.open(DIGEST_DB, DIGEST_DB_VERSION); }
+    catch (e) { return resolve(null); }
+    req.onerror = () => resolve(null);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('digest')) return resolve(null);
+      const get = db.transaction('digest').objectStore('digest').get('current');
+      get.onsuccess = () => resolve(get.result || null);
+      get.onerror = () => resolve(null);
+    };
+  });
+}
+
+/* Once a day at most, and only when there is something to say — a reminder that fires
+ * with nothing due is one you learn to swipe away without reading. */
+function notifyFromDigest() {
+  return readDigest().then((d) => {
+    if (!d || !d.enabled || !d.count) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (d.notifiedOn === today) return;
+    return self.registration.showNotification('Estates Ledger', {
+      body: d.line + (d.lead ? '\n' + d.lead : ''),
+      tag: 'estates-daily',
+      icon: './icon-192.png',
+      badge: './icon-192.png',
+      data: { url: './' },
+    }).then(() => new Promise((resolve) => {
+      const req = indexedDB.open(DIGEST_DB, DIGEST_DB_VERSION);
+      req.onerror = () => resolve();
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('digest')) return resolve();
+        const tx = db.transaction('digest', 'readwrite');
+        tx.objectStore('digest').put(Object.assign({}, d, { notifiedOn: today }));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      };
+    }));
+  });
+}
+
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'estates-reminders') event.waitUntil(notifyFromDigest());
+});
+
+// lets the page (and the test suite) force a check without waiting on the browser
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'check-reminders') event.waitUntil(notifyFromDigest());
+});
+
+/* Focus the app if it's already open rather than opening a second copy — two tabs of a
+ * localStorage-backed app can overwrite each other's work. */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const base = new URL('./', self.location).href;
+      for (const client of list) {
+        if (client.url.startsWith(base) && 'focus' in client) return client.focus();
+      }
+      return self.clients.openWindow ? self.clients.openWindow('./') : undefined;
+    })
+  );
+});
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;

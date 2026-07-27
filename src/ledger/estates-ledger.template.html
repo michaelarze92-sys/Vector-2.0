@@ -614,6 +614,31 @@
   }
   .storage-alert button:hover{ filter:brightness(.94); }
 
+  .today-head{ margin-bottom:14px; }
+  .today-date{ font-family:'Plex Cond',sans-serif; font-weight:700; font-size:1.15rem; color:var(--ink); }
+  .today-count{ font-size:.84rem; color:var(--accent); font-weight:600; margin-top:2px; }
+  .today-voice{ width:100%; margin-bottom:18px; }
+  .today-section{ margin-bottom:20px; }
+  .today-note{ font-size:.74rem; color:var(--ink-dim); margin:4px 0 8px; }
+  .today-row{
+    display:flex; align-items:center; gap:10px; padding:10px 4px;
+    border-bottom:1px solid var(--line); cursor:pointer;
+  }
+  .today-row-flat{ cursor:default; }
+  .today-row:hover{ background:var(--surface); }
+  .today-row-flat:hover{ background:none; }
+  .today-sev{ width:4px; align-self:stretch; border-radius:2px; flex:0 0 auto; min-height:26px; }
+  .today-main{ flex:1; min-width:0; }
+  .today-title{ font-size:.88rem; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .today-meta{ font-size:.72rem; color:var(--ink-dim); margin-top:2px; }
+  .today-badge{ font-family:'Plex Mono',monospace; font-size:.72rem; white-space:nowrap; flex:0 0 auto; }
+  .today-acts{ display:flex; gap:5px; flex:0 0 auto; }
+  @media (max-width:720px){
+    .today-title{ white-space:normal; }
+    .today-row{ flex-wrap:wrap; }
+    .today-acts{ order:4; margin-left:auto; }
+  }
+
   .backup-nudge{
     display:flex; align-items:center; gap:10px; margin-bottom:16px;
     background:var(--surface); border:1px solid var(--sev-yellow); border-left:3px solid var(--sev-yellow);
@@ -670,6 +695,8 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <button class="btn btn-sm btn-primary" id="todayBtn">Today</button>
+      <button class="icon-btn" id="voiceCaptureBtn" title="Log an issue by voice" aria-label="Log an issue by voice">🎤</button>
       <button class="btn btn-sm" id="sitesBtn">Sites</button>
       <button class="btn btn-sm" id="reportsBtn">Reports</button>
       <button class="btn btn-sm" id="calendarBtn">Calendar</button>
@@ -680,6 +707,7 @@
           <button id="exportJsonBtn">Export backup (.json)</button>
           <button id="exportCsvBtn">Export report (.csv)</button>
           <button id="importBtn">Import backup (.json)</button>
+          <button id="notifyToggleBtn">Daily reminders: off</button>
           <button id="themeToggleBtn">Toggle theme (dark / light / hybrid)</button>
           <div class="note" id="menuBackupNote">Everything — issues, notes, photos &amp; documents — lives only in this browser. Export backup regularly, or to move it to another device.</div>
         </div>
@@ -982,6 +1010,19 @@
   </div>
 </div>
 
+<!-- Today: the day's actions only. The home screen answers "what is the state of the
+     estate"; this answers "what do I do now", which is a different question and the one
+     that gets asked every morning. -->
+<div class="modal-overlay full" id="todayOverlay">
+  <div class="modal modal-full">
+    <div class="modal-head">
+      <h2 id="todayTitle">Today</h2>
+      <button class="icon-btn" id="todayCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="todayModalBody"></div>
+  </div>
+</div>
+
 <!-- Calendar: issue target dates + compliance due dates, month view -->
 <div class="modal-overlay full" id="calendarOverlay">
   <div class="modal modal-full">
@@ -1277,12 +1318,18 @@
     if(dbPromise) return dbPromise;
     dbPromise = new Promise(function(resolve, reject){
       if(!window.indexedDB){ reject(new Error("no indexeddb")); return; }
-      var req = indexedDB.open(DB_NAME, 1);
+      /* v2 adds "digest". A service worker cannot read localStorage, so the reminder
+         summary it needs while the app is closed has to live in IndexedDB — this store
+         is the only channel between the two. Keep the version here and in sw.js in step. */
+      var req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = function(){
         var db = req.result;
         if(!db.objectStoreNames.contains("files")){
           var store = db.createObjectStore("files", {keyPath:"id"});
           store.createIndex("issueId", "issueId", {unique:false});
+        }
+        if(!db.objectStoreNames.contains("digest")){
+          db.createObjectStore("digest", {keyPath:"id"});
         }
       };
       req.onsuccess = function(){ resolve(req.result); };
@@ -3421,7 +3468,356 @@
     });
   }
 
-  function renderAll(){ renderSiteOptions(); renderStats(); renderList(); renderBackupNudge(); }
+  function renderAll(){
+    renderSiteOptions(); renderStats(); renderList(); renderBackupNudge();
+    writeReminderDigest();   // keep the service worker's copy current; never throws
+  }
+
+  /* ---------------- Today ---------------- */
+
+  /* The home screen answers "what is the state of the estate". This answers "what do I
+     do now" — a different question, asked every morning, and the one the estate view is
+     worst at. Everything here is derived from existing issues and compliance registers;
+     it stores nothing of its own.
+
+     "Chase" is the bucket that doesn't exist anywhere else: jobs sitting with a
+     contractor where nothing has happened for a week. Those don't show as overdue —
+     their target date may be weeks out — but they're the ones that quietly slip. */
+  var CHASE_AFTER_DAYS = 7;
+
+  function lastActivityISO(issue){
+    var latest = issue.dateReported || "";
+    (issue.notes || []).forEach(function(n){
+      var iso = (n.ts || "").slice(0, 10);
+      if(iso > latest) latest = iso;
+    });
+    return latest;
+  }
+
+  function collectToday(){
+    var b = { overdue: [], due: [], week: [], chase: [], compliance: [], undated: [] };
+
+    issues.forEach(function(i){
+      if(DONE_STATUSES.indexOf(i.status) !== -1) return;
+      var d = i.targetDate ? daysUntil(i.targetDate) : null;
+      if(d === null) b.undated.push({ issue: i, days: null });
+      else if(d < 0)  b.overdue.push({ issue: i, days: d });
+      else if(d === 0) b.due.push({ issue: i, days: d });
+      else if(d <= 7) b.week.push({ issue: i, days: d });
+
+      // sitting with a contractor and nothing has moved — independent of the target date
+      if(/await/i.test(i.status || "")){
+        var last = lastActivityISO(i);
+        var age = last ? -daysUntil(last) : null;
+        if(age !== null && age >= CHASE_AFTER_DAYS) b.chase.push({ issue: i, days: age });
+      }
+    });
+
+    PROPERTY_ORDER.forEach(function(site){
+      (getSiteDetail(site).compliance || []).forEach(function(c){
+        if(!c.due) return;
+        var d = daysUntil(c.due);
+        if(d <= 30) b.compliance.push({ site: site, item: c, days: d });
+      });
+    });
+
+    // worst first inside every bucket, so the top of each list is the thing to do first
+    var bySeverity = function(x, y){
+      if(x.days !== y.days) return (x.days === null ? 1e9 : x.days) - (y.days === null ? 1e9 : y.days);
+      return severityScore(y.issue || {}) - severityScore(x.issue || {});
+    };
+    Object.keys(b).forEach(function(k){
+      b[k].sort(k === "chase" ? function(x, y){ return y.days - x.days; } : bySeverity);
+    });
+    return b;
+  }
+
+  function todayRowMarkup(entry){
+    var i = entry.issue;
+    var badge = entry.days === null ? "no date"
+              : entry.days < 0 ? Math.abs(entry.days) + "d overdue"
+              : entry.days === 0 ? "due today"
+              : entry.days + "d";
+    var tone = entry.days === null ? "var(--ink-dim)"
+             : entry.days <= 0 ? "var(--sev-red)"
+             : entry.days <= 3 ? "var(--sev-yellow)" : "var(--ink-dim)";
+    return '<div class="today-row" data-id="' + i.id + '">' +
+      '<span class="today-sev" style="' + siteColorCss(i.site) + '"></span>' +
+      '<div class="today-main">' +
+        '<div class="today-title">' + escapeHtml(i.title) + '</div>' +
+        '<div class="today-meta">' + escapeHtml(i.site) + ' · ' + escapeHtml(i.status) +
+          (i.assigned ? ' · ' + escapeHtml(i.assigned) : '') + '</div>' +
+      '</div>' +
+      '<span class="today-badge" style="color:' + tone + ';">' + badge + '</span>' +
+      '<span class="today-acts">' +
+        '<button class="btn btn-sm" data-act="snooze" data-id="' + i.id + '" title="Push the target date on a week">+1w</button>' +
+        '<button class="btn btn-sm" data-act="done" data-id="' + i.id + '" title="Mark resolved">Done</button>' +
+      '</span>' +
+    '</div>';
+  }
+
+  function todayComplianceRowMarkup(entry){
+    var badge = entry.days < 0 ? Math.abs(entry.days) + "d overdue" : entry.days === 0 ? "due today" : entry.days + "d";
+    return '<div class="today-row today-row-flat">' +
+      '<span class="today-sev" style="' + siteColorCss(entry.site) + '"></span>' +
+      '<div class="today-main">' +
+        '<div class="today-title">📋 ' + escapeHtml(entry.item.type || "Compliance item") + '</div>' +
+        '<div class="today-meta">' + escapeHtml(entry.site) + (entry.item.owner ? ' · ' + escapeHtml(entry.item.owner) : '') + '</div>' +
+      '</div>' +
+      '<span class="today-badge" style="color:' + (entry.days <= 7 ? "var(--sev-red)" : "var(--sev-yellow)") + ';">' + badge + '</span>' +
+    '</div>';
+  }
+
+  function todayMarkup(){
+    var b = collectToday();
+    var d = new Date();
+    var heading = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
+    var counts = [];
+    if(b.overdue.length) counts.push(b.overdue.length + " overdue");
+    if(b.due.length) counts.push(b.due.length + " due today");
+    if(b.chase.length) counts.push(b.chase.length + " to chase");
+
+    var html = '<div class="today-head">' +
+      '<div class="today-date">' + escapeHtml(heading) + '</div>' +
+      '<div class="today-count">' + (counts.length ? escapeHtml(counts.join(" · ")) : "Nothing needs you today.") + '</div>' +
+    '</div>';
+
+    html += '<button class="btn btn-primary today-voice" id="todayVoiceBtn">🎤 Log something by voice</button>';
+
+    function section(title, note, rows, markup){
+      if(!rows.length) return "";
+      return '<div class="today-section">' +
+        '<span class="eyebrow">' + title + ' (' + rows.length + ')</span>' +
+        (note ? '<div class="today-note">' + note + '</div>' : '') +
+        rows.map(markup).join("") +
+      '</div>';
+    }
+
+    html += section("Overdue", "", b.overdue, todayRowMarkup);
+    html += section("Due today", "", b.due, todayRowMarkup);
+    html += section("Chase", "With a contractor, nothing logged for " + CHASE_AFTER_DAYS + "+ days.", b.chase, todayRowMarkup);
+    html += section("Next 7 days", "", b.week, todayRowMarkup);
+    html += section("Compliance due", "Within 30 days, from each site's register.", b.compliance, todayComplianceRowMarkup);
+    html += section("No target date", "These won't appear anywhere time-based until they have one.", b.undated, todayRowMarkup);
+
+    if(!b.overdue.length && !b.due.length && !b.chase.length && !b.week.length &&
+       !b.compliance.length && !b.undated.length){
+      html += '<div class="bd-empty">Nothing outstanding. Either you are on top of it, or nothing has been logged yet.</div>';
+    }
+    return html;
+  }
+
+  function renderToday(){
+    var body = document.getElementById("todayModalBody");
+    body.innerHTML = todayMarkup();
+    wireToday(body);
+  }
+
+  function wireToday(body){
+    body.querySelectorAll(".today-row[data-id]").forEach(function(row){
+      row.addEventListener("click", function(e){
+        if(e.target.closest("[data-act]")) return;   // the quick actions handle themselves
+        document.getElementById("todayOverlay").classList.remove("open");
+        openDetail(row.getAttribute("data-id"));
+      });
+    });
+    body.querySelectorAll("[data-act]").forEach(function(btn){
+      btn.addEventListener("click", function(e){
+        e.stopPropagation();
+        var issue = issues.find(function(i){ return i.id === btn.getAttribute("data-id"); });
+        if(!issue) return;
+        if(btn.getAttribute("data-act") === "snooze"){
+          issue.targetDate = addDays(issue.targetDate || todayISO(), 7);
+          showToast("Pushed to " + fmtDate(issue.targetDate) + ".");
+        } else {
+          issue.status = "Resolved";
+          issue.resolvedDate = todayISO();
+          showToast("Marked resolved.");
+        }
+        save(STORAGE_KEY, issues);
+        renderAll();
+        renderToday();
+      });
+    });
+    var voice = document.getElementById("todayVoiceBtn");
+    if(voice) voice.addEventListener("click", startVoiceCapture);
+  }
+
+  document.getElementById("todayBtn").addEventListener("click", function(){
+    document.getElementById("todayOverlay").classList.add("open");
+    renderToday();
+  });
+  document.getElementById("todayCloseBtn").addEventListener("click", function(){
+    document.getElementById("todayOverlay").classList.remove("open");
+  });
+
+  /* ---------------- reminders / notifications ---------------- */
+
+  /* What is and isn't possible here, so nobody re-litigates it later:
+     there is no backend, so there is no push server, so a notification cannot be
+     *delivered* to a closed app the way a normal app's can. Two mechanisms are available
+     to a backend-less PWA and both are used:
+
+       1. On open — always works, anywhere. If something is overdue you're told, once a
+          day, whether you went looking or not.
+       2. periodicsync — Chrome on Android, installed to the home screen only, and the
+          BROWSER decides when it fires (typically no better than daily, and never at a
+          time you choose). It runs the service worker with the app closed.
+
+     Neither is a guaranteed 8am alarm. Anything stronger needs a server. Because the
+     service worker can't see localStorage, (2) reads the digest written to IndexedDB. */
+  var NOTIFY_KEY = "estatesLedger.notify.v1";
+  var PERIODIC_TAG = "estates-reminders";
+
+  function notificationsOn(){
+    try { return localStorage.getItem(NOTIFY_KEY) === "on"; } catch(e){ return false; }
+  }
+  function notificationsSupported(){
+    return typeof Notification !== "undefined" && "serviceWorker" in navigator;
+  }
+
+  function reminderSummary(){
+    var b = collectToday();
+    var first = b.overdue[0] || b.due[0] || b.chase[0] || null;
+    var parts = [];
+    if(b.overdue.length) parts.push(b.overdue.length + " overdue");
+    if(b.due.length) parts.push(b.due.length + " due today");
+    if(b.chase.length) parts.push(b.chase.length + " to chase");
+    return {
+      count: b.overdue.length + b.due.length,
+      chase: b.chase.length,
+      line: parts.join(" · "),
+      lead: first && first.issue ? first.issue.title + " — " + first.issue.site : ""
+    };
+  }
+
+  function readDigestRecord(){
+    return openDB().then(function(db){
+      return new Promise(function(resolve){
+        var g = db.transaction("digest").objectStore("digest").get("current");
+        g.onsuccess = function(){ resolve(g.result || null); };
+        g.onerror = function(){ resolve(null); };
+      });
+    }).catch(function(){ return null; });
+  }
+
+  /* Written on every render so the service worker always has a current picture, even
+     though it may not read it for hours. Failures are swallowed: a missing digest costs
+     a notification, and must never break rendering.
+
+     Read-modify-write, NOT a blind put. notifiedOn is the shared once-a-day stamp and is
+     written by whichever side fired last; a plain put here would erase it on the next
+     render — which is every few seconds — and you would be notified over and over. */
+  function writeReminderDigest(){
+    var s = reminderSummary();
+    openDB().then(function(db){
+      var tx = db.transaction("digest", "readwrite");
+      var store = tx.objectStore("digest");
+      var g = store.get("current");
+      g.onsuccess = function(){
+        var prev = g.result || {};
+        store.put({
+          id: "current", updatedAt: new Date().toISOString(), day: todayISO(),
+          enabled: notificationsOn(), count: s.count, chase: s.chase, line: s.line, lead: s.lead,
+          notifiedOn: prev.notifiedOn || ""
+        });
+      };
+    }).catch(function(){});
+  }
+
+  /* One stamp, in one place. The page and the service worker both notify, and they can't
+     see each other's state any other way — the worker has no localStorage — so a stamp
+     kept on the page side would let each fire once and you'd get two a day. */
+  function markNotified(){
+    return openDB().then(function(db){
+      return new Promise(function(resolve){
+        var tx = db.transaction("digest", "readwrite");
+        var store = tx.objectStore("digest");
+        var g = store.get("current");
+        g.onsuccess = function(){
+          var v = g.result || { id: "current" };
+          v.notifiedOn = todayISO();
+          store.put(v);
+        };
+        tx.oncomplete = function(){ resolve(); };
+        tx.onerror = function(){ resolve(); };
+      });
+    }).catch(function(){});
+  }
+
+  function notifyNow(summary){
+    return navigator.serviceWorker.ready.then(function(reg){
+      return reg.showNotification("Estates Ledger", {
+        body: summary.line + (summary.lead ? "\n" + summary.lead : ""),
+        tag: "estates-daily",         // replaces rather than stacks
+        badge: "./icon-192.png",
+        icon: "./icon-192.png",
+        data: { url: "./" }
+      });
+    });
+  }
+
+  /* Once a day at most, and only when there is something to say. A reminder that fires
+     when nothing is due trains you to ignore it. */
+  function maybeNotifyOnOpen(){
+    if(!notificationsOn() || !notificationsSupported()) return;
+    if(Notification.permission !== "granted") return;
+    var s = reminderSummary();
+    if(!s.count) return;
+    readDigestRecord().then(function(d){
+      if(d && d.notifiedOn === todayISO()) return;
+      return notifyNow(s).then(markNotified);
+    }).catch(function(){});
+  }
+
+  function registerPeriodicSync(){
+    if(!("serviceWorker" in navigator)) return Promise.resolve(false);
+    return navigator.serviceWorker.ready.then(function(reg){
+      if(!reg.periodicSync) return false;   // not Chrome/Android, or not installed
+      return navigator.permissions.query({ name: "periodic-background-sync" })
+        .then(function(p){
+          if(p.state !== "granted") return false;
+          return reg.periodicSync.register(PERIODIC_TAG, { minInterval: 12 * 60 * 60 * 1000 })
+                    .then(function(){ return true; });
+        });
+    }).catch(function(){ return false; });
+  }
+
+  function renderNotifyToggle(){
+    var btn = document.getElementById("notifyToggleBtn");
+    if(!btn) return;
+    if(!notificationsSupported()){ btn.textContent = "Reminders unavailable in this browser"; btn.disabled = true; return; }
+    btn.textContent = notificationsOn() ? "Daily reminders: ON" : "Daily reminders: off";
+  }
+
+  function toggleNotifications(){
+    if(!notificationsSupported()){ showToast("This browser can't show reminders."); return; }
+    if(notificationsOn()){
+      try { localStorage.setItem(NOTIFY_KEY, "off"); } catch(e){}
+      renderNotifyToggle(); writeReminderDigest();
+      showToast("Daily reminders off.");
+      return;
+    }
+    Notification.requestPermission().then(function(state){
+      if(state !== "granted"){
+        showToast(state === "denied"
+          ? "Notifications are blocked for this site — allow them in your browser settings, then try again."
+          : "Reminders need notification permission.");
+        return;
+      }
+      try { localStorage.setItem(NOTIFY_KEY, "on"); } catch(e){}
+      renderNotifyToggle(); writeReminderDigest();
+      registerPeriodicSync().then(function(background){
+        showToast(background
+          ? "Reminders on. You'll get a daily nudge, and one when you open the app."
+          : "Reminders on — you'll get one when you open the app. Background reminders need it installed to your home screen on Android Chrome.");
+        // the confirmation IS today's reminder — stamp it, or the worker sends a second
+        var s = reminderSummary();
+        if(s.count) notifyNow(s).then(markNotified).catch(function(){});
+      });
+    }).catch(function(){ showToast("Couldn't request notification permission."); });
+  }
 
   /* ---------------- paste-an-email quick capture ---------------- */
 
@@ -4342,6 +4738,10 @@
     if(btn) btn.textContent = themeToggleLabel(t);
   }
   applyTheme(load(THEME_KEY, null));
+  document.getElementById("notifyToggleBtn").addEventListener("click", toggleNotifications);
+  renderNotifyToggle();
+  maybeNotifyOnOpen();
+
   document.getElementById("themeToggleBtn").addEventListener("click", function(){
     var current = document.documentElement.getAttribute("data-theme");
     var idx = THEME_CYCLE.indexOf(current);
@@ -4947,18 +5347,60 @@
   var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   var recognizer = SpeechRec ? new SpeechRec() : null;
   var recognizing = false;
+  var voiceMode = "vector";   // "vector" = a command for the assistant, "issue" = dictate a new issue
+
+  function clearMicActive(){
+    ["vectorMicBtn", "voiceCaptureBtn", "todayVoiceBtn"].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) el.classList.remove("active");
+    });
+  }
+
+  /* Shared by the topbar mic and the Today view's button. Speech recognition needs a
+     network round trip in Chrome and is blocked outright inside the Artifact sandbox
+     (same permissions policy that blocks getUserMedia), so this fails loudly rather than
+     appearing to listen — the error handler below names the actual cause. */
+  function startVoiceCapture(){
+    if(!recognizer){ showToast("Voice input isn't supported in this browser — try Chrome, or use Paste email."); return; }
+    if(recognizing){ recognizer.stop(); return; }
+    voiceMode = "issue";
+    recognizing = true;
+    var btn = document.getElementById("todayVoiceBtn") || document.getElementById("voiceCaptureBtn");
+    if(btn) btn.classList.add("active");
+    showToast("Listening — say what's wrong, where, and when it's needed by.");
+    try { recognizer.start(); }
+    catch(e){ recognizing = false; clearMicActive(); showToast("Couldn't start the microphone."); }
+  }
+
   if(recognizer){
     recognizer.lang = "en-GB";
     recognizer.interimResults = false;
     recognizer.maxAlternatives = 1;
+    /* One recogniser, two destinations. voiceMode says which — a second instance would
+       be simpler to read but the two could then be listening at once, and the browser
+       only reliably supports one live capture. */
     recognizer.onresult = function(e){
       var transcript = e.results[0][0].transcript;
-      vectorHandle(transcript);
+      if(voiceMode === "issue"){
+        /* Straight through the email parser: dictation and a pasted email are the same
+           problem — free text in, a best-guess issue out — and it already knows the venue
+           names, the category keywords and "by Friday". */
+        var prefill = parseEmailText(transcript);
+        prefill.title = transcript.replace(/\s+/g, " ").trim().slice(0, 90);
+        openForm(null, prefill);
+        var got = [];
+        if(prefill.site) got.push(prefill.site);
+        if(prefill.targetDate) got.push("target " + prefill.targetDate);
+        showToast(got.length ? "Heard — " + got.join(" · ") + ". Check and save."
+                             : "Heard it. Pick a site, check the rest, then save.");
+      } else {
+        vectorHandle(transcript);
+      }
     };
-    recognizer.onend = function(){ recognizing = false; document.getElementById("vectorMicBtn").classList.remove("active"); };
+    recognizer.onend = function(){ recognizing = false; clearMicActive(); };
     recognizer.onerror = function(e){
       recognizing = false;
-      document.getElementById("vectorMicBtn").classList.remove("active");
+      clearMicActive();
       var code = e && e.error;
       var msg;
       if(code === "not-allowed" || code === "service-not-allowed"){
@@ -4979,10 +5421,12 @@
   document.getElementById("vectorMicBtn").addEventListener("click", function(){
     if(!recognizer){ showToast("Voice input isn't supported in this browser — try Chrome, or type instead."); return; }
     if(recognizing){ recognizer.stop(); return; }
+    voiceMode = "vector";
     recognizing = true;
     this.classList.add("active");
     try{ recognizer.start(); }catch(e){ recognizing = false; this.classList.remove("active"); }
   });
+  document.getElementById("voiceCaptureBtn").addEventListener("click", startVoiceCapture);
 
   /* ---------------- background video ---------------- */
 
