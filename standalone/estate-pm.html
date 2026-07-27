@@ -588,6 +588,7 @@
     upload: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><polyline points="7 14 12 9 17 14"/><path d="M4 5h16"/></svg>',
     trash: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
     mail: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+    tender: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><line x1="2" y1="13" x2="22" y2="13"/></svg>',
   };
   const STATUS_ICON = { "Not Started": ICON.circle, "In Progress": ICON.play, "Blocked": ICON.stop, "Done": ICON.check };
   const STATUS_CLASS = { "Not Started": "notstarted", "In Progress": "inprogress", "Blocked": "blocked", "Done": "done" };
@@ -622,7 +623,7 @@
 
   function freshState() {
     return { venues: SEED_VENUES.map(v => ({ ...v })), projects: [], tasks: [], budgetLines: [],
-      contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [],
+      contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [], tenders: [],
       ui: { collapsed: {}, ganttZoom: "week", calMonth: todayISO().slice(0, 7) } };
   }
 
@@ -687,6 +688,7 @@
   function projectRisks(id) { return state.risks.filter(r => r.projectId === id); }
   function openRiskCount(id) { return projectRisks(id).filter(r => r.status === "Open").length; }
   function projectMeetingNotes(id) { return state.meetingNotes.filter(n => n.projectId === id); }
+  function projectTenders(id) { return state.tenders.filter(t => t.projectId === id); }
 
   function toast(msg) {
     const el = document.getElementById("toast");
@@ -1136,7 +1138,8 @@
   }
 
   function logStatusChip(status) {
-    const cls = { Open: "chip-blocked", Answered: "chip-done", Mitigated: "chip-inprogress", Closed: "chip-done", Realised: "chip-blocked" }[status] || "chip-notstarted";
+    const cls = { Open: "chip-blocked", Answered: "chip-done", Mitigated: "chip-inprogress", Closed: "chip-done", Realised: "chip-blocked",
+      Draft: "chip-notstarted", Issued: "chip-inprogress", Questions: "chip-inprogress", Evaluation: "chip-inprogress", Awarded: "chip-done", Cancelled: "chip-blocked" }[status] || "chip-notstarted";
     return `<span class="chip ${cls}">${escapeHtml(status || "—")}</span>`;
   }
 
@@ -1150,6 +1153,7 @@
     const spend = projectSpend(id);
     const risks = projectRisks(id), decisions = projectDecisions(id), qa = projectQA(id), docs = projectDocuments(id), contacts = projectContacts(id);
     const meetingNotes = projectMeetingNotes(id);
+    const tenders = projectTenders(id);
 
     return `
       <div class="page-head">
@@ -1176,6 +1180,30 @@
       <div class="card">
         <div class="card-head"><h2>Tasks</h2><span class="g-count">${tasks.length}</span></div>
         <div class="card-body">${tasks.length ? tasks.map(t => taskRowHtml(t, isOverdue(t))).join("") : emptyState("No tasks linked to this project yet — use quick-add at the top.")}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>${ICON.tender} Tender &amp; Procurement Register</h2><span class="g-count">${tenders.length}</span></div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Tender</th><th>Route</th><th>Status</th><th>Issued</th><th>Return due</th><th>Est. value</th><th>Owner</th><th></th></tr></thead>
+          <tbody>${tenders.map(t => `<tr>
+            <td>${escapeHtml(t.title)}</td><td>${escapeHtml(t.route || "—")}</td><td>${logStatusChip(t.status)}</td>
+            <td>${fmtShort(t.issueDate)}</td><td>${fmtShort(t.returnDate)}</td><td>${escapeHtml(t.estValue || "—")}</td><td>${escapeHtml(t.owner || "—")}</td>
+            <td><button class="icon-x" data-delete-tender="${t.id}">${ICON.x}</button></td>
+          </tr>`).join("") || `<tr><td colspan="8">${emptyState("No tenders logged yet.")}</td></tr>`}</tbody>
+        </table></div>
+        <div class="card-body pad">
+          <form class="inline-add-form" data-add-tender="${id}">
+            <input class="grow2" type="text" name="title" placeholder="Tender / scope" required />
+            <select name="route"><option selected>Single-stage</option><option>Two-stage</option><option>Framework call-off</option><option>Direct award</option><option>Mini-competition</option><option>Other</option></select>
+            <select name="status"><option selected>Draft</option><option>Issued</option><option>Questions</option><option>Evaluation</option><option>Awarded</option><option>Cancelled</option></select>
+            <input type="date" name="issueDate" placeholder="Issued" />
+            <input type="date" name="returnDate" placeholder="Return due" />
+            <input type="text" name="estValue" placeholder="Est. value" />
+            <input type="text" name="owner" placeholder="Owner" />
+            <button class="btn btn-sm" type="submit">${ICON.plus} Add tender</button>
+          </form>
+        </div>
       </div>
 
       <div class="card">
@@ -1332,6 +1360,7 @@
     { key: "documents", addAttr: "data-add-document", delAttr: "data-delete-document", fields: ["dateReceived", "name", "type", "source", "location", "notes"] },
     { key: "contacts", addAttr: "data-add-contact", delAttr: "data-delete-contact", fields: ["name", "orgRole", "area", "phone", "email", "notes"] },
     { key: "meetingNotes", addAttr: "data-add-meetingnote", delAttr: "data-delete-meetingnote", fields: ["date", "title", "source", "body"] },
+    { key: "tenders", addAttr: "data-add-tender", delAttr: "data-delete-tender", fields: ["title", "route", "status", "issueDate", "returnDate", "estValue", "owner"] },
   ];
 
   function bindProjectDetailEvents(root) {

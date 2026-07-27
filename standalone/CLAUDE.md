@@ -19,7 +19,7 @@ order. Grep for `====` to jump between them:
 | QUICK ADD | The always-visible top-bar task quick-add form. |
 | DASHBOARD | Overdue / due-this-week / budget alerts. Pulls from `allDatedItems()` (tasks *and* subtasks with due dates, merged) — don't reintroduce a tasks-only view here. |
 | GANTT | The custom Gantt: zoom levels, drag-to-reschedule, dependency lines, milestones. `renderTaskRow` and `startDrag` are the two functions to understand before touching this. |
-| PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the six project logs (see below). |
+| PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the seven project logs (see below). |
 | BUDGET / CALENDAR / DATA & BACKUP | Mostly self-contained; Calendar also pulls subtask due dates in, same pattern as Dashboard. |
 | PAGE DISPATCH | `renderPage()` — full re-render of `#content` on every state change, then `bindPageEvents()` re-attaches listeners. No virtual DOM, no diffing. If you add a page, register it in both `PAGES`/dispatch and add its bindings here. |
 | TASK MODAL / PROJECT MODAL / COST MODAL | `<dialog>`-based modals, built fresh (innerHTML) each time they open. |
@@ -38,16 +38,23 @@ Tasks have a `checklist` array (subtasks). Each checklist item can carry its own
 delegation fields, deliberately, so `allDatedItems()` can treat tasks and subtasks
 uniformly.
 
-## The six project logs (Risk Register, Decisions Log, Q&A Log, Documents Register,
-Key Contacts, Meeting Notes)
+## The seven project logs (Risk Register, Decisions Log, Q&A Log, Documents Register,
+Key Contacts, Meeting Notes, Tender & Procurement Register)
 
 These all follow one generic pattern, defined once as `PROJECT_LOG_ENTITIES` (in the
 PROJECTS LIST & DETAIL section) — an array of `{ key, addAttr, delAttr, fields }`.
-**Adding a seventh log type means adding one entry to that array plus its render
+**Adding another log type means adding one entry to that array plus its render
 markup — it does not mean writing new add/delete/import-merge logic.** The generic
 handlers in `bindProjectDetailEvents()` and `importBackup()` already iterate that
 config. If you ever find yourself hand-writing a delete handler for a new record type,
 you've missed the existing pattern.
+
+The Tender & Procurement Register (`tenders`) is the newest of the seven — added to
+track ITTs/tenders per project (route, status, issue/return dates, est. value, owner)
+now that the Ledger's "Tender & Contract" issue category can promote into a
+"Contractor-Managed" project. It reuses `logStatusChip()` (extended with
+Draft/Issued/Questions/Evaluation/Awarded/Cancelled) rather than inventing a second
+status-chip renderer.
 
 ## Import/export
 
