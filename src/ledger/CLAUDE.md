@@ -247,6 +247,50 @@ targets on a phone; any `position:fixed` button eventually lands on some control
 | `estatesLedger.sites/contractors/emails/theme/refs.v1` | lookups and prefs |
 | IndexedDB `estatesLedgerFiles` | attachments + site photos (blobs) |
 
+### Storage safety — the rules `load`/`save` enforce
+
+The original pair had one silent, unrecoverable failure mode: `load()` returned the
+fallback on *any* error, so a key that failed to parse opened the app looking empty and
+normal — and the next `save()` wrote that empty state over the unreadable-but-present
+bytes. `save()` reported failure with a toast and carried on, so a full quota meant you
+kept working against a screen that no longer matched disk.
+
+- **Absent ≠ unreadable.** Absent is an ordinary empty start. Unreadable sets
+  `storageHalted`, and *every* write is refused from then on. Refusing to write is what
+  preserves the bytes — nothing is deleted, renamed or "repaired". The raw text is also
+  kept in `corruptRaw` for recovery.
+- **A failed write halts too.** Half-saving is worse than not saving; the screen keeps
+  implying the data is safe.
+- **The alarm is `#storageAlert`, never a toast.** Persistent, `z-index: 80` (above the
+  confirm prompt at 60), and deliberately **not dismissable** — a banner you can wave away
+  leaves the app looking fine while it drops changes. Export is the only action, and it
+  works when saving doesn't because it reads memory and raw localStorage.
+- **Halting is app-wide, not per key.** A corrupt theme key stops issue writes too. That's
+  intentional: a half-working app is harder to reason about than a stopped one, and the
+  recovery path (export → reload → import) restores everything.
+
+`test_storage_safety.js` asserts all of this from the outside — it corrupts a key, types
+an issue, and checks the original bytes survive both the save attempt and a reload.
+
+### Backup freshness
+
+`LAST_BACKUP_KEY` is written by `markBackupTaken()`, passed to `offerDownload` as its
+`onSaved` callback so it only fires on a download that actually started. It's written
+straight to `localStorage`, bypassing `save()`, so it still records while storage is
+halted — a backup taken during an emergency is the one most worth remembering.
+
+`#backupNudge` appears when there are issues and the last backup is missing or older than
+`BACKUP_NUDGE_DAYS` (14). Dismiss is **session-only** by design: the risk hasn't gone
+away, so it returns next time the app opens.
+
+### Downloads must not overclaim
+
+`offerDownload` previously said "Downloaded X" on both branches unconditionally, so a
+download the browser refused looked exactly like a successful backup. `window.claude.
+downloads.save` resolves only on a real save and may claim success; the anchor fallback
+**cannot** be verified, so it claims only that a download *started* and says where to
+check. Keep that distinction — the whole point of a backup is knowing whether you have one.
+
 ### Backups — read before touching storage
 
 `BACKUP_KEYS` is the single list of every localStorage key the app owns. Export copies

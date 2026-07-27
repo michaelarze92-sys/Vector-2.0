@@ -596,6 +596,35 @@
   .update-bar button.primary{ background:var(--bg); color:var(--ink); }
   .update-bar button:hover{ filter:brightness(1.15); }
 
+  /* Sits above every overlay (50) and the confirm prompt (60) — if saving is broken,
+     nothing on screen matters more, including whatever modal is open. */
+  .storage-alert{
+    display:none; position:fixed; top:0; left:0; right:0; z-index:80;
+    background:var(--sev-red); color:#fff; padding:12px 16px;
+    box-shadow:0 2px 14px rgba(0,0,0,.4); font-size:.84rem;
+  }
+  .storage-alert.show{ display:block; }
+  .storage-alert .sa-head{ font-family:'Plex Cond',sans-serif; font-weight:700; font-size:.95rem; margin-bottom:3px; }
+  .storage-alert .sa-text{ margin-bottom:8px; }
+  .storage-alert .sa-note{ font-size:.74rem; opacity:.85; margin-top:8px; }
+  .storage-alert button{
+    font-family:inherit; font-size:.82rem; font-weight:600; cursor:pointer;
+    background:#fff; color:var(--sev-red); border:none;
+    border-radius:var(--radius); padding:7px 14px;
+  }
+  .storage-alert button:hover{ filter:brightness(.94); }
+
+  .backup-nudge{
+    display:flex; align-items:center; gap:10px; margin-bottom:16px;
+    background:var(--surface); border:1px solid var(--sev-yellow); border-left:3px solid var(--sev-yellow);
+    border-radius:var(--radius); padding:10px 12px; font-size:.82rem; color:var(--ink);
+  }
+  .backup-nudge .bn-text{ flex:1; }
+  @media (max-width:720px){
+    .backup-nudge{ flex-wrap:wrap; }
+    .backup-nudge .bn-text{ flex:1 1 100%; order:3; }
+  }
+
   /* Most file inputs here are fired programmatically from a styled button (attachments,
      camera, backup import), so the default is hidden. The import pane's two are the
      exception: there is no button in front of them, they ARE the control, so they opt
@@ -652,11 +681,18 @@
           <button id="exportCsvBtn">Export report (.csv)</button>
           <button id="importBtn">Import backup (.json)</button>
           <button id="themeToggleBtn">Toggle theme (dark / light / hybrid)</button>
-          <div class="note">Everything — issues, notes, photos &amp; documents — lives only in this browser. Export backup regularly, or to move it to another device.</div>
+          <div class="note" id="menuBackupNote">Everything — issues, notes, photos &amp; documents — lives only in this browser. Export backup regularly, or to move it to another device.</div>
         </div>
         <input type="file" id="importFile" accept="application/json">
       </div>
     </div>
+  </div>
+
+  <div class="backup-nudge" id="backupNudge" style="display:none;">
+    <span class="bn-icon">💾</span>
+    <span class="bn-text" id="backupNudgeText"></span>
+    <button class="btn btn-sm btn-primary" id="backupNudgeBtn">Export backup</button>
+    <button class="icon-btn" id="backupNudgeDismiss" aria-label="Dismiss until next time">✕</button>
   </div>
 
   <div class="reminders-card" id="remindersCard" style="display:none;">
@@ -988,6 +1024,18 @@
   <button id="updateDismissBtn" aria-label="Dismiss">Later</button>
 </div>
 
+<!-- Storage alarm. Deliberately un-dismissable, unlike the update prompt: this one means
+     work is not being saved, and a banner you can wave away leaves the app looking normal
+     while it silently drops changes. Export is the only useful action, so it's the only
+     button — and it reads from memory and raw localStorage, so it still works when
+     saving doesn't. -->
+<div class="storage-alert" id="storageAlert" role="alert">
+  <div class="sa-head">⚠ Your changes are not being saved</div>
+  <div class="sa-text" id="storageAlertText"></div>
+  <div class="sa-actions"><button id="storageAlertExportBtn">Export everything now</button></div>
+  <div class="sa-note">Nothing has been deleted. Export first, then reload — if it happens again, import that file into a fresh browser or device.</div>
+</div>
+
 <script>
 (function(){
   "use strict";
@@ -999,6 +1047,7 @@
   var CONTRACTOR_EMAIL_KEY = "estatesLedger.contractorEmails.v1";
   var THEME_KEY = "estatesLedger.theme.v1";
   var ESTATE_METRICS_KEY = "estatesLedger.estateMetrics.v1";
+  var LAST_BACKUP_KEY = "estatesLedger.lastBackup.v1";
 
   var CATEGORIES = ["Fabric & Building","M&E / Plant","Health & Safety","FM / Dalkia SLA","Capital Project","Tender & Contract","Other"];
   var STATUSES = ["Open","In Progress","Awaiting Contractor","Resolved","Closed"];
@@ -1111,13 +1160,58 @@
     };
   }
 
-  function load(key, fallback){
-    try{ var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
-    catch(e){ return fallback; }
+  /* ---- Storage safety ----
+
+     The first version of this pair had one silent, unrecoverable failure mode. load()
+     returned the fallback on ANY error, so a key that failed to parse opened the app
+     looking empty and perfectly normal — and save() then wrote the empty state straight
+     over the unreadable-but-still-present data. By the time anyone noticed, the only copy
+     was gone. save() itself only raised a toast on failure and carried on, so a full or
+     blocked storage meant you kept working against a screen that no longer matched disk.
+
+     Three rules now:
+       1. Absent and unreadable are different. Absent is an ordinary empty start.
+          Unreadable halts writing — refusing to write is what preserves the bytes,
+          so nothing is deleted, renamed or "repaired".
+       2. A failed write halts everything too. Half-saving is worse than not saving,
+          because the screen keeps implying the data is safe.
+       3. The alarm is a persistent banner, never a toast. A toast for "your work is not
+          being saved" disappears after three seconds and leaves the app looking fine. */
+  var corruptRaw = {};        // key -> the raw text that wouldn't parse, kept for recovery
+  var storageHalted = false;
+
+  function haltStorage(message){
+    if(storageHalted) return;   // first cause is the useful one; later ones are consequences
+    storageHalted = true;
+    var bar = document.getElementById("storageAlert");
+    if(!bar) return;
+    document.getElementById("storageAlertText").textContent = message;
+    bar.classList.add("show");
   }
+
+  function load(key, fallback){
+    var raw = null;
+    try { raw = localStorage.getItem(key); }
+    catch(e){
+      haltStorage("This browser is blocking local storage, so nothing can be loaded or saved. Private/incognito mode and some privacy settings do this.");
+      return fallback;
+    }
+    if(raw === null || raw === "") return fallback;   // never written yet — normal empty start
+    try { return JSON.parse(raw); }
+    catch(e){
+      corruptRaw[key] = raw;
+      haltStorage("Some of your stored data could not be read. Saving is switched off so that data is not overwritten — nothing has been deleted.");
+      return fallback;
+    }
+  }
+
   function save(key, val){
-    try{ localStorage.setItem(key, JSON.stringify(val)); }
-    catch(e){ showToast("Couldn't save — storage may be full."); }
+    if(storageHalted) return false;
+    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+    catch(e){
+      haltStorage("Saving failed — this browser's storage is full or unavailable. Any changes since you opened the app are only on screen.");
+      return false;
+    }
   }
 
   var issues = load(STORAGE_KEY, []);
@@ -3327,7 +3421,7 @@
     });
   }
 
-  function renderAll(){ renderSiteOptions(); renderStats(); renderList(); }
+  function renderAll(){ renderSiteOptions(); renderStats(); renderList(); renderBackupNudge(); }
 
   /* ---------------- paste-an-email quick capture ---------------- */
 
@@ -4259,24 +4353,83 @@
 
   /* ---------------- export / import ---------------- */
 
+  /* Says what actually happened, which the first version did not: it reported
+     "Downloaded X" on both branches unconditionally, so a download the browser refused
+     looked exactly like a successful backup — the worst possible thing to be wrong about.
+
+     window.claude.downloads.save resolves only on a real save, so that branch may claim
+     success. The anchor fallback genuinely cannot be verified — the click either reached
+     the download manager or was blocked, and nothing reports back — so it claims only
+     that a download was started and tells you where to check. */
   function downloadFallback(filename, mime, text){
-    var blob = new Blob([text], {type: mime});
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    try {
+      var blob = new Blob([text], {type: mime});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+      return true;
+    } catch(e){ return false; }
   }
 
-  function offerDownload(filename, mime, text){
+  function offerDownload(filename, mime, text, onSaved){
+    function fallback(){
+      if(downloadFallback(filename, mime, text)){
+        showToast("Download started — check your Downloads for " + filename);
+        if(onSaved) onSaved();
+      } else {
+        showToast("Couldn't start the download. Try again, or use a different browser.");
+      }
+    }
     if(window.claude && window.claude.downloads && typeof window.claude.downloads.save === "function"){
       window.claude.downloads.save({filename: filename, data: text})
-        .then(function(){ showToast("Saved " + filename); })
-        .catch(function(){ downloadFallback(filename, mime, text); showToast("Downloaded " + filename); });
+        .then(function(){ showToast("Saved " + filename); if(onSaved) onSaved(); })
+        .catch(fallback);
     } else {
-      downloadFallback(filename, mime, text);
-      showToast("Downloaded " + filename);
+      fallback();
     }
+  }
+
+  /* ---- backup freshness ----
+     Written straight to localStorage rather than through save(), so it still records
+     when storage is halted — a backup taken during an emergency is exactly the one worth
+     remembering. It's in BACKUP_KEYS, so restoring on a new device inherits the date of
+     the file you restored from, which is the truth. */
+  var BACKUP_NUDGE_DAYS = 14;
+  var backupNudgeDismissed = false;
+
+  function markBackupTaken(){
+    try { localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString()); } catch(e){}
+    renderBackupNudge();
+  }
+  function daysSinceBackup(){
+    var iso = "";
+    try { iso = localStorage.getItem(LAST_BACKUP_KEY) || ""; } catch(e){ return null; }
+    if(!iso) return null;
+    return Math.floor((parseISO(todayISO()) - parseISO(iso.slice(0, 10))) / 86400000);
+  }
+
+  function renderBackupNudge(){
+    var el = document.getElementById("backupNudge");
+    var note = document.getElementById("menuBackupNote");
+    var days = daysSinceBackup();
+
+    if(note){
+      note.textContent = days === null
+        ? "Never backed up. Everything — issues, notes, photos & documents — lives only in this browser."
+        : "Last backup " + (days === 0 ? "today" : days === 1 ? "yesterday" : days + " days ago") +
+          ". Everything lives only in this browser.";
+    }
+    if(!el) return;
+    // nothing to lose yet, or already told them this session
+    if(backupNudgeDismissed || !issues.length || (days !== null && days < BACKUP_NUDGE_DAYS)){
+      el.style.display = "none"; return;
+    }
+    document.getElementById("backupNudgeText").textContent = days === null
+      ? "You have never exported a backup. This ledger exists only in this browser."
+      : "Last backup was " + days + " days ago. This ledger exists only in this browser.";
+    el.style.display = "flex";
   }
 
   /* ---------------- promote issue to Project Board (metroEstatesPM.v1 format) ---------------- */
@@ -4354,7 +4507,8 @@
     ESTATE_METRICS_KEY,    // board report sections 2, 7, 8
     SITE_REFS_KEY, REF_CATS_KEY,
     PM_BOARD_KEY,          // imported Project Board snapshot
-    THEME_KEY
+    THEME_KEY,
+    LAST_BACKUP_KEY        // so a restored device knows how fresh the file it came from was
   ];
   // Vector's chat history is deliberately excluded — it's transient and can be noisy.
 
@@ -4374,7 +4528,7 @@
     });
   }
 
-  document.getElementById("exportJsonBtn").addEventListener("click", function(){
+  function exportBackup(){
     showToast("Preparing backup…");
     idbAll().then(function(files){
       return Promise.all(files.map(function(f){
@@ -4390,15 +4544,23 @@
         localState: collectLocalState(),
         files: fileRecords
       };
-      offerDownload("estates-ledger-backup.json", "application/json", JSON.stringify(payload));
+      offerDownload("estates-ledger-backup.json", "application/json", JSON.stringify(payload), markBackupTaken);
     }).catch(function(){
       offerDownload("estates-ledger-backup.json", "application/json", JSON.stringify({
         formatVersion: 2, exportedAt: new Date().toISOString(),
         issues: issues, sites: sites, contractors: contractors, emails: emails,
         localState: collectLocalState()
-      }));
+      }), markBackupTaken);
       showToast("Backup saved without attachments — couldn't read local file storage.");
     });
+  }
+
+  document.getElementById("exportJsonBtn").addEventListener("click", exportBackup);
+  document.getElementById("storageAlertExportBtn").addEventListener("click", exportBackup);
+  document.getElementById("backupNudgeBtn").addEventListener("click", exportBackup);
+  document.getElementById("backupNudgeDismiss").addEventListener("click", function(){
+    backupNudgeDismissed = true;      // this session only — it's back next time the app opens
+    renderBackupNudge();
   });
 
   document.getElementById("exportCsvBtn").addEventListener("click", function(){
