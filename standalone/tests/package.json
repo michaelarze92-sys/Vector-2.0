@@ -1,0 +1,12 @@
+{
+  "name": "estate-pm-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright regression suite for standalone/estate-pm.html",
+  "scripts": {
+    "test": "bash run-all.sh"
+  },
+  "dependencies": {
+    "playwright": "^1.62.0"
+  }
+}
