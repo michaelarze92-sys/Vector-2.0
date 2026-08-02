@@ -440,6 +440,28 @@
   .cal-cell.today { box-shadow: inset 0 0 0 2px var(--accent); }
   .cal-daynum { font-size: 12px; font-weight: 700; color: var(--ink-secondary); }
   .cal-chip { font-size: 10.5px; font-weight: 700; padding: 2px 5px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .cal-chip.cal-gov { border-left: 3px solid var(--accent); }
+
+  /* ---------- Kanban ---------- */
+  .kanban-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  @media (max-width: 1000px) { .kanban-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 620px) { .kanban-grid { grid-template-columns: 1fr; } }
+  .kb-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; min-height: 120px; }
+  .kb-col.drag-over { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+  .kb-col-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .kb-col-head .kb-title { font-size: 12.5px; font-weight: 700; }
+  .kb-col-head .g-count { margin-left: auto; }
+  .kb-col-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .kb-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 10px; cursor: grab; }
+  .kb-card:active { cursor: grabbing; }
+  .kb-card.dragging { opacity: 0.45; }
+  .kb-card .kb-name { font-size: 13px; font-weight: 600; }
+  .kb-card .kb-meta { font-size: 11px; color: var(--ink-muted); margin-top: 3px; }
+  .kb-card.overdue { border-left: 3px solid var(--st-blocked); }
+  .kb-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .kb-filters select { border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 7px 9px; font-size: 12.5px; font-family: inherit; }
+  .gov-day { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-secondary); }
+  .gov-day input { flex: none; width: 58px; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 6px 8px; font-size: 12.5px; font-family: inherit; }
 
   /* ---------- Modal (dialog) ---------- */
   dialog.modal { border: none; border-radius: 14px; padding: 0; width: min(560px, 92vw); background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
@@ -506,6 +528,7 @@
 
   .banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 600; }
   .banner-info { background: var(--accent-soft); color: var(--accent-soft-ink); }
+  .banner-warn { background: var(--st-blocked-soft); color: var(--st-blocked); flex-direction: column; align-items: flex-start; gap: 4px; }
 
   .update-toast { display: none; position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 60; box-shadow: var(--shadow); max-width: min(420px, calc(100vw - 24px)); }
   .update-toast button { flex: none; margin-left: 4px; }
@@ -588,12 +611,22 @@
     upload: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><polyline points="7 14 12 9 17 14"/><path d="M4 5h16"/></svg>',
     trash: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
     mail: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+    tender: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><line x1="2" y1="13" x2="22" y2="13"/></svg>',
+    kanban: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg>',
+    retro: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/><path d="M12 8v4.5l3 1.8"/></svg>',
   };
   const STATUS_ICON = { "Not Started": ICON.circle, "In Progress": ICON.play, "Blocked": ICON.stop, "Done": ICON.check };
   const STATUS_CLASS = { "Not Started": "notstarted", "In Progress": "inprogress", "Blocked": "blocked", "Done": "done" };
   const STATUSES = ["Not Started", "In Progress", "Blocked", "Done"];
   const PRIORITIES = ["Low", "Medium", "High", "Critical"];
   const CATEGORIES = ["Compliance", "Refurbishment", "Contractor-Managed", "Licensing", "Other"];
+  const STAGE_GATES = ["Concept", "Business Case", "Approved", "Procurement/Tender", "Delivery", "Close-out"];
+  function stageGateChip(stage) {
+    stage = stage || STAGE_GATES[0];
+    const idx = STAGE_GATES.indexOf(stage);
+    const cls = idx <= 1 ? "chip-notstarted" : idx <= 4 ? "chip-inprogress" : "chip-done";
+    return `<span class="chip ${cls}" title="Stage gate">${escapeHtml(stage)}</span>`;
+  }
 
   /* ============================== DATE UTILS ============================== */
   const DAY_MS = 86400000;
@@ -622,8 +655,8 @@
 
   function freshState() {
     return { venues: SEED_VENUES.map(v => ({ ...v })), projects: [], tasks: [], budgetLines: [],
-      contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [],
-      ui: { collapsed: {}, ganttZoom: "week", calMonth: todayISO().slice(0, 7) } };
+      contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [], tenders: [], budgetCheckpoints: [], lessons: [],
+      ui: { collapsed: {}, ganttZoom: "week", calMonth: todayISO().slice(0, 7), kanbanFilter: {} } };
   }
 
   let state = load();
@@ -687,6 +720,24 @@
   function projectRisks(id) { return state.risks.filter(r => r.projectId === id); }
   function openRiskCount(id) { return projectRisks(id).filter(r => r.status === "Open").length; }
   function projectMeetingNotes(id) { return state.meetingNotes.filter(n => n.projectId === id); }
+  function projectTenders(id) { return state.tenders.filter(t => t.projectId === id); }
+  function projectBudgetCheckpoints(id) { return state.budgetCheckpoints.filter(b => b.projectId === id); }
+
+  function projectLessons(id) { return state.lessons.filter(l => l.projectId === id); }
+
+  // Kanban-style WIP check: too many things genuinely in flight at once for one person.
+  // Counts tasks and delegated subtasks together — a subtask you've handed to someone
+  // is still load on them, even though it isn't a task in its own right.
+  const WIP_LIMIT = 5;
+  function wipByOwner() {
+    const counts = {};
+    const bump = (name) => { const n = (name || "").trim(); if (!n) return; counts[n] = (counts[n] || 0) + 1; };
+    state.tasks.forEach(t => {
+      if (t.status === "In Progress") bump(t.ownerName);
+      (t.checklist || []).forEach(c => { if (!c.done) bump(c.assigneeName); });
+    });
+    return Object.keys(counts).map(owner => ({ owner, count: counts[owner] })).sort((a, b) => b.count - a.count);
+  }
 
   function toast(msg) {
     const el = document.getElementById("toast");
@@ -698,6 +749,7 @@
   const PAGES = [
     { id: "dashboard", label: "Dashboard", icon: ICON.dashboard },
     { id: "gantt", label: "Gantt", icon: ICON.gantt },
+    { id: "kanban", label: "Board", icon: ICON.kanban },
     { id: "projects", label: "Projects", icon: ICON.projects },
     { id: "budget", label: "Budget", icon: ICON.budget },
     { id: "calendar", label: "Calendar", icon: ICON.calendar },
@@ -786,6 +838,8 @@
     const budgetAlerts = state.projects.map(p => ({ p, spend: projectSpend(p.id) }))
       .filter(x => x.p.budgetAllocated > 0 && x.spend / x.p.budgetAllocated >= 0.85)
       .sort((a, b) => (b.spend / b.p.budgetAllocated) - (a.spend / a.p.budgetAllocated));
+    const wipLoads = wipByOwner();
+    const wipOverloaded = wipLoads.filter(w => w.count > WIP_LIMIT);
 
     return `
       <div class="page-head">
@@ -797,6 +851,10 @@
         <div class="stat-tile"><div class="label">Open tasks</div><div class="value">${openTasks}</div><div class="sub">across ${state.projects.length} project${state.projects.length === 1 ? "" : "s"}</div></div>
         <div class="stat-tile"><div class="label">Budget alerts</div><div class="value ${budgetAlerts.length ? "accent-bad" : "accent-good"}">${budgetAlerts.length}</div><div class="sub">projects ≥85% of budget</div></div>
       </div>
+
+      ${wipOverloaded.length ? `<div class="banner banner-warn" style="margin-bottom:16px">
+        ${wipOverloaded.map(w => `<div><strong>${escapeHtml(w.owner)}</strong> has ${w.count} tasks in progress at once (over ${WIP_LIMIT}) — worth finishing something before pulling in more.</div>`).join("")}
+      </div>` : ""}
 
       <div class="card">
         <div class="card-head"><h2>Overdue</h2>${overdue.length ? `<span class="g-count">${overdue.length}</span>` : ""}</div>
@@ -1125,6 +1183,7 @@
     const spend = projectSpend(p.id);
     return `<div class="task-row" data-open-project="${p.id}" style="cursor:pointer">
       <span class="chip chip-${STATUS_CLASS[p.status]}">${STATUS_ICON[p.status]}</span>
+      ${stageGateChip(p.stageGate)}
       <div class="t-main">
         <div class="t-name">${escapeHtml(p.name)}</div>
         <div class="t-meta">${venue ? escapeHtml(venue.name) : "No venue"} · ${escapeHtml(p.category || "Other")} · ${openTasks}/${tasks.length} open tasks${openRisks ? ` · ${openRisks} open risk${openRisks === 1 ? "" : "s"}` : ""}</div>
@@ -1136,7 +1195,8 @@
   }
 
   function logStatusChip(status) {
-    const cls = { Open: "chip-blocked", Answered: "chip-done", Mitigated: "chip-inprogress", Closed: "chip-done", Realised: "chip-blocked" }[status] || "chip-notstarted";
+    const cls = { Open: "chip-blocked", Answered: "chip-done", Mitigated: "chip-inprogress", Closed: "chip-done", Realised: "chip-blocked",
+      Draft: "chip-notstarted", Issued: "chip-inprogress", Questions: "chip-inprogress", Evaluation: "chip-inprogress", Awarded: "chip-done", Cancelled: "chip-blocked" }[status] || "chip-notstarted";
     return `<span class="chip ${cls}">${escapeHtml(status || "—")}</span>`;
   }
 
@@ -1150,6 +1210,9 @@
     const spend = projectSpend(id);
     const risks = projectRisks(id), decisions = projectDecisions(id), qa = projectQA(id), docs = projectDocuments(id), contacts = projectContacts(id);
     const meetingNotes = projectMeetingNotes(id);
+    const tenders = projectTenders(id);
+    const budgetCheckpoints = projectBudgetCheckpoints(id);
+    const lessons = projectLessons(id);
 
     return `
       <div class="page-head">
@@ -1160,6 +1223,7 @@
         </div>
         <div class="page-actions">
           <span class="chip chip-${STATUS_CLASS[p.status]}">${STATUS_ICON[p.status]}${p.status}</span>
+          ${stageGateChip(p.stageGate)}
           ${p.licenceRiskFlag ? `<span class="chip chip-blocked">${ICON.shield} Licence risk</span>` : ""}
           ${p.gamingFloorDisruption ? `<span class="chip" style="background:rgba(201,132,11,0.14);color:var(--pr-high)">${ICON.disruption} Floor disruption</span>` : ""}
           <button class="btn" data-action="edit-project" data-id="${p.id}">Edit</button>
@@ -1176,6 +1240,50 @@
       <div class="card">
         <div class="card-head"><h2>Tasks</h2><span class="g-count">${tasks.length}</span></div>
         <div class="card-body">${tasks.length ? tasks.map(t => taskRowHtml(t, isOverdue(t))).join("") : emptyState("No tasks linked to this project yet — use quick-add at the top.")}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>${ICON.budget} Budget Checkpoints</h2><span class="g-count">${budgetCheckpoints.length}</span></div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Stage</th><th>Amount</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${[...budgetCheckpoints].sort((a, b) => STAGE_GATES.indexOf(a.stage) - STAGE_GATES.indexOf(b.stage)).map(b => `<tr>
+            <td>${escapeHtml(b.stage)}</td><td>${money(b.amount)}</td><td>${fmtShort(b.date)}</td><td>${escapeHtml(b.notes || "—")}</td>
+            <td><button class="icon-x" data-delete-budgetcheckpoint="${b.id}">${ICON.x}</button></td>
+          </tr>`).join("") || `<tr><td colspan="5">${emptyState("No budget checkpoints logged yet — record the estimate at each gate as it firms up.")}</td></tr>`}</tbody>
+        </table></div>
+        <div class="card-body pad">
+          <form class="inline-add-form" data-add-budgetcheckpoint="${id}">
+            <select name="stage">${STAGE_GATES.map(g => `<option ${g === "Business Case" ? "selected" : ""}>${g}</option>`).join("")}</select>
+            <input type="number" name="amount" placeholder="Amount (£)" min="0" step="100" required />
+            <input type="date" name="date" value="${todayISO()}" />
+            <input class="grow2" type="text" name="notes" placeholder="Notes — e.g. lowest compliant bid, XYZ Ltd" />
+            <button class="btn btn-sm" type="submit">${ICON.plus} Add checkpoint</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>${ICON.tender} Tender &amp; Procurement Register</h2><span class="g-count">${tenders.length}</span></div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Tender</th><th>Route</th><th>Status</th><th>Issued</th><th>Return due</th><th>Est. value</th><th>Owner</th><th></th></tr></thead>
+          <tbody>${tenders.map(t => `<tr>
+            <td>${escapeHtml(t.title)}</td><td>${escapeHtml(t.route || "—")}</td><td>${logStatusChip(t.status)}</td>
+            <td>${fmtShort(t.issueDate)}</td><td>${fmtShort(t.returnDate)}</td><td>${escapeHtml(t.estValue || "—")}</td><td>${escapeHtml(t.owner || "—")}</td>
+            <td><button class="icon-x" data-delete-tender="${t.id}">${ICON.x}</button></td>
+          </tr>`).join("") || `<tr><td colspan="8">${emptyState("No tenders logged yet.")}</td></tr>`}</tbody>
+        </table></div>
+        <div class="card-body pad">
+          <form class="inline-add-form" data-add-tender="${id}">
+            <input class="grow2" type="text" name="title" placeholder="Tender / scope" required />
+            <select name="route"><option selected>Single-stage</option><option>Two-stage</option><option>Framework call-off</option><option>Direct award</option><option>Mini-competition</option><option>Other</option></select>
+            <select name="status"><option selected>Draft</option><option>Issued</option><option>Questions</option><option>Evaluation</option><option>Awarded</option><option>Cancelled</option></select>
+            <input type="date" name="issueDate" placeholder="Issued" />
+            <input type="date" name="returnDate" placeholder="Return due" />
+            <input type="text" name="estValue" placeholder="Est. value" />
+            <input type="text" name="owner" placeholder="Owner" />
+            <button class="btn btn-sm" type="submit">${ICON.plus} Add tender</button>
+          </form>
+        </div>
       </div>
 
       <div class="card">
@@ -1322,6 +1430,28 @@
           </form>
         </div>
       </div>
+
+      <div class="card">
+        <div class="card-head"><h2>${ICON.retro} Lessons Learned</h2><span class="g-count">${lessons.length}</span></div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Date</th><th>Theme</th><th>What happened</th><th>Do differently next time</th><th>Raised by</th><th></th></tr></thead>
+          <tbody>${[...lessons].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(l => `<tr>
+            <td>${fmtShort(l.date)}</td><td>${escapeHtml(l.theme || "—")}</td><td>${escapeHtml(l.whatHappened)}</td>
+            <td>${escapeHtml(l.doDifferently || "—")}</td><td>${escapeHtml(l.raisedBy || "—")}</td>
+            <td><button class="icon-x" data-delete-lesson="${l.id}">${ICON.x}</button></td>
+          </tr>`).join("") || `<tr><td colspan="6">${emptyState("No lessons logged yet — capture these at close-out while they're fresh.")}</td></tr>`}</tbody>
+        </table></div>
+        <div class="card-body pad">
+          <form class="inline-add-form" data-add-lesson="${id}">
+            <input type="date" name="date" value="${todayISO()}" />
+            <select name="theme"><option selected>Scope</option><option>Procurement</option><option>Contractor performance</option><option>Cost</option><option>Programme</option><option>Compliance / SHE</option><option>Stakeholder</option><option>Other</option></select>
+            <input class="grow2" type="text" name="whatHappened" placeholder="What happened" required />
+            <input class="grow2" type="text" name="doDifferently" placeholder="Do differently next time" />
+            <input type="text" name="raisedBy" placeholder="Raised by" />
+            <button class="btn btn-sm" type="submit">${ICON.plus} Add lesson</button>
+          </form>
+        </div>
+      </div>
     `;
   }
 
@@ -1332,6 +1462,9 @@
     { key: "documents", addAttr: "data-add-document", delAttr: "data-delete-document", fields: ["dateReceived", "name", "type", "source", "location", "notes"] },
     { key: "contacts", addAttr: "data-add-contact", delAttr: "data-delete-contact", fields: ["name", "orgRole", "area", "phone", "email", "notes"] },
     { key: "meetingNotes", addAttr: "data-add-meetingnote", delAttr: "data-delete-meetingnote", fields: ["date", "title", "source", "body"] },
+    { key: "tenders", addAttr: "data-add-tender", delAttr: "data-delete-tender", fields: ["title", "route", "status", "issueDate", "returnDate", "estValue", "owner"] },
+    { key: "budgetCheckpoints", addAttr: "data-add-budgetcheckpoint", delAttr: "data-delete-budgetcheckpoint", fields: ["stage", "amount", "date", "notes"] },
+    { key: "lessons", addAttr: "data-add-lesson", delAttr: "data-delete-lesson", fields: ["date", "theme", "whatHappened", "doDifferently", "raisedBy"] },
   ];
 
   function bindProjectDetailEvents(root) {
@@ -1426,6 +1559,26 @@
   }
 
   /* ============================== CALENDAR ============================== */
+  // Michael's documented reporting cadence — monthly FM dashboard, quarterly SHE pack
+  // and ECT Board report. The day-of-month is a placeholder he can change on the
+  // Calendar page (stored in state.ui.govDays); the *cadence* is the fixed part.
+  const GOVERNANCE_CADENCE = [
+    { key: "fm", label: "FM dashboard due", every: "month" },
+    { key: "she", label: "Quarterly SHE pack", every: "quarter" },
+    { key: "board", label: "ECT Board SHE report", every: "quarter" },
+  ];
+  const GOV_DAY_DEFAULTS = { fm: 5, she: 10, board: 15 };
+  function govDays() { return Object.assign({}, GOV_DAY_DEFAULTS, state.ui.govDays || {}); }
+  function governanceEventsForMonth(y, m) {
+    if (state.ui.hideGovernance) return [];
+    const days = govDays();
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const isQuarterMonth = [1, 4, 7, 10].indexOf(m) >= 0;
+    return GOVERNANCE_CADENCE
+      .filter(g => g.every === "month" || isQuarterMonth)
+      .map(g => ({ label: g.label, date: y + "-" + pad2(m) + "-" + pad2(Math.min(days[g.key], daysInMonth)) }));
+  }
+
   function renderCalendar() {
     const [y, m] = state.ui.calMonth.split("-").map(Number);
     const first = new Date(y, m - 1, 1); const startDow = (first.getDay() + 6) % 7;
@@ -1442,6 +1595,13 @@
       });
     });
 
+    const gd = govDays();
+    governanceEventsForMonth(y, m).forEach(g => {
+      // unshift, not push: a board deadline must survive the slice(0, 3) truncation
+      // in a day cell that also has ordinary tasks due.
+      (itemsByDay[g.date] = itemsByDay[g.date] || []).unshift({ kind: "governance", label: g.label });
+    });
+
     const dow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const cellsHtml = cells.map(d => {
       const iso = toISO(d); const out = d.getMonth() !== m - 1; const isToday = iso === todayISO();
@@ -1449,6 +1609,9 @@
       return `<div class="cal-cell ${out ? "out" : ""} ${isToday ? "today" : ""}">
         <div class="cal-daynum">${d.getDate()}</div>
         ${dayItems.slice(0, 3).map(x => {
+          if (x.kind === "governance") {
+            return `<div class="cal-chip cal-gov" style="background:var(--accent-soft);color:var(--accent-soft-ink);cursor:default" title="Governance milestone">${escapeHtml(x.label)}</div>`;
+          }
           if (x.kind === "task") {
             return `<div class="cal-chip" style="background:var(--st-${STATUS_CLASS[x.task.status]}-soft);color:var(--st-${STATUS_CLASS[x.task.status]})" data-open-task="${x.task.id}">${escapeHtml(x.task.name)}</div>`;
           }
@@ -1461,13 +1624,23 @@
 
     return `
       <div class="page-head">
-        <div><h1>Calendar</h1><div class="desc">Tasks and subtasks by due date — click one to open its task.</div></div>
+        <div><h1>Calendar</h1><div class="desc">Tasks and subtasks by due date — click one to open its task. Gold chips are your recurring reporting deadlines.</div></div>
         <div class="page-actions">
           <button class="btn btn-sm" data-cal-nav="-1">‹ Prev</button>
           <strong style="min-width:140px;text-align:center;display:inline-block">${monthLabel}</strong>
           <button class="btn btn-sm" data-cal-nav="1">Next ›</button>
         </div>
       </div>
+      <div class="card" style="margin-bottom:16px"><div class="card-body pad">
+        <div class="kb-filters">
+          <strong style="font-size:12.5px">Governance cadence</strong>
+          <label class="gov-day">FM dashboard, day <input type="number" min="1" max="28" value="${gd.fm}" data-gov-day="fm" /></label>
+          <label class="gov-day">SHE pack, day <input type="number" min="1" max="28" value="${gd.she}" data-gov-day="she" /></label>
+          <label class="gov-day">ECT Board, day <input type="number" min="1" max="28" value="${gd.board}" data-gov-day="board" /></label>
+          <button class="btn btn-sm" data-gov-toggle>${state.ui.hideGovernance ? "Show" : "Hide"} on calendar</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--ink-muted);margin-top:8px">Monthly FM dashboard; SHE pack and ECT Board report each quarter (Jan/Apr/Jul/Oct). Set the days to match your real deadlines.</div>
+      </div></div>
       <div class="card"><div class="card-body pad">
         <div class="cal-grid">
           ${dow.map(d => `<div class="cal-dow">${d}</div>`).join("")}
@@ -1475,6 +1648,91 @@
         </div>
       </div></div>
     `;
+  }
+
+  /* ============================== KANBAN BOARD ============================== */
+  function renderKanban() {
+    const f = state.ui.kanbanFilter || {};
+    let tasks = state.tasks.slice();
+    if (f.projectId) tasks = tasks.filter(t => t.projectId === f.projectId);
+    if (f.venueId) tasks = tasks.filter(t => (t.venueId || (projectById(t.projectId) || {}).venueId) === f.venueId);
+    if (f.owner) tasks = tasks.filter(t => (t.ownerName || "") === f.owner);
+
+    const owners = [...new Set(state.tasks.map(t => (t.ownerName || "").trim()).filter(Boolean))].sort();
+    const cols = STATUSES.map(s => ({ status: s, items: tasks.filter(t => t.status === s) }));
+
+    return `
+      <div class="page-head">
+        <div><h1>Board</h1><div class="desc">Drag a task between columns to change its status. Same tasks as the Gantt — a flow view instead of a timeline.</div></div>
+      </div>
+      <div class="card" style="margin-bottom:16px"><div class="card-body pad">
+        <div class="kb-filters">
+          <select data-kb-filter="projectId"><option value="">All projects</option>${state.projects.map(p => `<option value="${p.id}" ${f.projectId === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select>
+          <select data-kb-filter="venueId"><option value="">All venues</option>${state.venues.map(v => `<option value="${v.id}" ${f.venueId === v.id ? "selected" : ""}>${escapeHtml(v.name)}</option>`).join("")}</select>
+          <select data-kb-filter="owner"><option value="">All owners</option>${owners.map(o => `<option value="${escapeHtml(o)}" ${f.owner === o ? "selected" : ""}>${escapeHtml(o)}</option>`).join("")}</select>
+          ${(f.projectId || f.venueId || f.owner) ? `<button class="btn btn-sm" data-kb-clear>Clear filters</button>` : ""}
+        </div>
+      </div></div>
+      <div class="kanban-grid">
+        ${cols.map(c => `
+          <div class="kb-col" data-kb-col="${escapeHtml(c.status)}">
+            <div class="kb-col-head">
+              <span class="chip chip-${STATUS_CLASS[c.status]}">${STATUS_ICON[c.status]}</span>
+              <span class="kb-title">${c.status}</span>
+              <span class="g-count">${c.items.length}</span>
+            </div>
+            <div class="kb-col-body">
+              ${c.items.map(kanbanCard).join("") || `<div class="empty-state" style="padding:10px">Nothing here.</div>`}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function kanbanCard(t) {
+    const proj = projectById(t.projectId);
+    const venue = venueById(t.venueId || (proj && proj.venueId));
+    const meta = [proj ? proj.name : null, venue ? venue.name : null, t.ownerName || null].filter(Boolean).join(" · ");
+    return `<div class="kb-card ${isOverdue(t) ? "overdue" : ""}" draggable="true" data-kb-card="${t.id}" data-open-task="${t.id}">
+      <div class="kb-name">${escapeHtml(t.name)}</div>
+      <div class="kb-meta">${escapeHtml(meta || "Unassigned")}${t.dueDate ? " · due " + fmtShort(t.dueDate) : ""}</div>
+    </div>`;
+  }
+
+  function bindKanbanEvents(root) {
+    root.querySelectorAll("[data-kb-filter]").forEach(sel => sel.addEventListener("change", () => {
+      state.ui.kanbanFilter = Object.assign({}, state.ui.kanbanFilter, { [sel.dataset.kbFilter]: sel.value || null });
+      save(); renderPage();
+    }));
+    const clear = root.querySelector("[data-kb-clear]");
+    if (clear) clear.addEventListener("click", () => { state.ui.kanbanFilter = {}; save(); renderPage(); });
+
+    let draggingId = null;
+    root.querySelectorAll("[data-kb-card]").forEach(card => {
+      card.addEventListener("dragstart", (e) => {
+        draggingId = card.dataset.kbCard;
+        card.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", draggingId);
+      });
+      card.addEventListener("dragend", () => { draggingId = null; card.classList.remove("dragging"); });
+    });
+    root.querySelectorAll("[data-kb-col]").forEach(col => {
+      col.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; col.classList.add("drag-over"); });
+      col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
+      col.addEventListener("drop", (e) => {
+        e.preventDefault(); col.classList.remove("drag-over");
+        const id = draggingId || e.dataTransfer.getData("text/plain");
+        const t = taskById(id);
+        if (!t) return;
+        const newStatus = col.dataset.kbCol;
+        if (t.status === newStatus) return;
+        t.status = newStatus;
+        if (newStatus === "Done") t.progressPct = 100;
+        save(); toast("Moved to " + newStatus); renderPage();
+      });
+    });
   }
 
   /* ============================== DATA & BACKUP ============================== */
@@ -1575,6 +1833,7 @@
     let html = "";
     if (activePage === "dashboard") html = renderDashboard();
     else if (activePage === "gantt") html = renderGantt();
+    else if (activePage === "kanban") html = renderKanban();
     else if (activePage === "projects") html = renderProjects();
     else if (activePage === "project-detail") html = renderProjectDetail(viewingProjectId);
     else if (activePage === "budget") html = renderBudget();
@@ -1595,11 +1854,24 @@
     const resetBtn = root.querySelector('[data-action="reset-all"]'); if (resetBtn) resetBtn.addEventListener("click", () => {
       if (confirm("Erase all projects, tasks and budget data in this browser? This can't be undone unless you have a backup file.")) { state = freshState(); save(); toast("All data erased"); renderPage(); }
     });
+    root.querySelectorAll("[data-gov-day]").forEach(inp => inp.addEventListener("change", () => {
+      const v = Math.min(Math.max(parseInt(inp.value, 10) || 1, 1), 28);
+      state.ui.govDays = Object.assign({}, govDays(), { [inp.dataset.govDay]: v });
+      save();
+      // renderPage() replaces #content wholesale. Doing that synchronously inside a
+      // change handler tears the focused input out mid-blur and Chrome throws on the
+      // innerHTML assignment — blur first, then re-render on the next tick.
+      inp.blur();
+      setTimeout(renderPage, 0);
+    }));
+    const govToggle = root.querySelector("[data-gov-toggle]");
+    if (govToggle) govToggle.addEventListener("click", () => { state.ui.hideGovernance = !state.ui.hideGovernance; save(); renderPage(); });
     root.querySelectorAll("[data-cal-nav]").forEach(el => el.addEventListener("click", () => {
       const [y, m] = state.ui.calMonth.split("-").map(Number); const d = new Date(y, m - 1 + Number(el.dataset.calNav), 1);
       state.ui.calMonth = d.getFullYear() + "-" + pad2(d.getMonth() + 1); save(); renderPage();
     }));
     if (activePage === "gantt") bindGanttEvents(root);
+    if (activePage === "kanban") bindKanbanEvents(root);
   }
 
   /* ============================== TASK MODAL ============================== */
@@ -1858,9 +2130,10 @@
     const existing = id ? projectById(id) : null;
     const draft = existing ? JSON.parse(JSON.stringify(existing)) : {
       id: null, name: "", venueId: state.venues[0] ? state.venues[0].id : null, category: "Other", owner: "",
-      status: "Not Started", budgetAllocated: 0, startDate: todayISO(), targetEndDate: "", actualEndDate: "",
+      status: "Not Started", stageGate: STAGE_GATES[0], budgetAllocated: 0, startDate: todayISO(), targetEndDate: "", actualEndDate: "",
       licenceRiskFlag: false, gamingFloorDisruption: false,
     };
+    if (!draft.stageGate) draft.stageGate = STAGE_GATES[0];
 
     dlg.innerHTML = `
       <div class="modal-head"><h3>${existing ? "Edit project" : "New project"}</h3><button class="icon-x" data-close>${ICON.x}</button></div>
@@ -1872,6 +2145,7 @@
         </div>
         <div class="field"><label>Owner</label><input type="text" id="pOwner" value="${escapeHtml(draft.owner)}" placeholder="e.g. Venue Director, Dalkia" /></div>
         <div class="field"><label>Status</label><div class="status-pick" id="pStatus">${STATUSES.map(s => `<button type="button" data-v="${s}" class="${draft.status === s ? "active" : ""}">${s}</button>`).join("")}</div></div>
+        <div class="field"><label>Stage gate<div class="hint">Governance checkpoint — log who approved the move in this project's Decisions Log</div></label><div class="status-pick" id="pStageGate">${STAGE_GATES.map(g => `<button type="button" data-v="${g}" class="${draft.stageGate === g ? "active" : ""}">${g}</button>`).join("")}</div></div>
         <div class="field-row">
           <div class="field"><label>Start date</label><input type="date" id="pStart" value="${draft.startDate || ""}" /></div>
           <div class="field"><label>Target end date</label><input type="date" id="pEnd" value="${draft.targetEndDate || ""}" /></div>
@@ -1886,6 +2160,7 @@
       </div>
     `;
     dlg.querySelector("#pStatus").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; draft.status = b.dataset.v; dlg.querySelectorAll("#pStatus button").forEach(x => x.classList.toggle("active", x === b)); });
+    dlg.querySelector("#pStageGate").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; draft.stageGate = b.dataset.v; dlg.querySelectorAll("#pStageGate button").forEach(x => x.classList.toggle("active", x === b)); });
     dlg.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => dlg.close()));
     const deleteBtn = dlg.querySelector("#pDelete");
     if (deleteBtn) deleteBtn.addEventListener("click", () => {
@@ -1899,7 +2174,7 @@
       const name = dlg.querySelector("#pName").value.trim(); if (!name) { dlg.querySelector("#pName").focus(); return; }
       const payload = {
         id: draft.id || uid(), name, venueId: dlg.querySelector("#pVenue").value, category: dlg.querySelector("#pCategory").value,
-        owner: dlg.querySelector("#pOwner").value.trim(), status: draft.status, budgetAllocated: Number(dlg.querySelector("#pBudget").value) || 0,
+        owner: dlg.querySelector("#pOwner").value.trim(), status: draft.status, stageGate: draft.stageGate || STAGE_GATES[0], budgetAllocated: Number(dlg.querySelector("#pBudget").value) || 0,
         startDate: dlg.querySelector("#pStart").value || null, targetEndDate: dlg.querySelector("#pEnd").value || null, actualEndDate: draft.actualEndDate || null,
         licenceRiskFlag: dlg.querySelector("#pLicence").checked, gamingFloorDisruption: dlg.querySelector("#pDisrupt").checked,
       };

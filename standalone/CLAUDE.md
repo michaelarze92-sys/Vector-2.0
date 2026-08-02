@@ -19,7 +19,8 @@ order. Grep for `====` to jump between them:
 | QUICK ADD | The always-visible top-bar task quick-add form. |
 | DASHBOARD | Overdue / due-this-week / budget alerts. Pulls from `allDatedItems()` (tasks *and* subtasks with due dates, merged) — don't reintroduce a tasks-only view here. |
 | GANTT | The custom Gantt: zoom levels, drag-to-reschedule, dependency lines, milestones. `renderTaskRow` and `startDrag` are the two functions to understand before touching this. |
-| PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the six project logs (see below). |
+| KANBAN BOARD | `renderKanban()` + `bindKanbanEvents()` — four status columns, HTML5 drag-and-drop between them, filters by project/venue/owner persisted in `state.ui.kanbanFilter`. Same tasks as the Gantt, flow view instead of timeline. |
+| PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the nine project logs (see below). |
 | BUDGET / CALENDAR / DATA & BACKUP | Mostly self-contained; Calendar also pulls subtask due dates in, same pattern as Dashboard. |
 | PAGE DISPATCH | `renderPage()` — full re-render of `#content` on every state change, then `bindPageEvents()` re-attaches listeners. No virtual DOM, no diffing. If you add a page, register it in both `PAGES`/dispatch and add its bindings here. |
 | TASK MODAL / PROJECT MODAL / COST MODAL | `<dialog>`-based modals, built fresh (innerHTML) each time they open. |
@@ -38,16 +39,90 @@ Tasks have a `checklist` array (subtasks). Each checklist item can carry its own
 delegation fields, deliberately, so `allDatedItems()` can treat tasks and subtasks
 uniformly.
 
-## The six project logs (Risk Register, Decisions Log, Q&A Log, Documents Register,
-Key Contacts, Meeting Notes)
+## The nine project logs (Risk Register, Decisions Log, Q&A Log, Documents Register,
+Key Contacts, Meeting Notes, Tender & Procurement Register, Budget Checkpoints,
+Lessons Learned)
 
 These all follow one generic pattern, defined once as `PROJECT_LOG_ENTITIES` (in the
 PROJECTS LIST & DETAIL section) — an array of `{ key, addAttr, delAttr, fields }`.
-**Adding a seventh log type means adding one entry to that array plus its render
+**Adding another log type means adding one entry to that array plus its render
 markup — it does not mean writing new add/delete/import-merge logic.** The generic
 handlers in `bindProjectDetailEvents()` and `importBackup()` already iterate that
 config. If you ever find yourself hand-writing a delete handler for a new record type,
 you've missed the existing pattern.
+
+## Agile/Kanban borrowings — and what was deliberately not borrowed
+
+Straight Scrum doesn't fit this estate: fixed sprints and velocity are meaningless
+against procurement lead times and reactive compliance work, and Scrum has no concept
+of a stage gate. What *is* borrowed: continuous Kanban flow (the Board page), a WIP
+limit (`WIP_LIMIT` = 5, surfaced as a dashboard banner via `wipByOwner()`), and
+retrospectives (the Lessons Learned log). `wipByOwner()` counts in-progress tasks and
+*undone delegated subtasks* together — a subtask handed to someone is real load on
+them even though it isn't a task in its own right.
+
+Not borrowed, on purpose: sprints, story points, burndown. Don't add them; the app's
+cadence anchors are Michael's real reporting deadlines (below), not an artificial
+iteration length.
+
+## Governance calendar cadence
+
+`GOVERNANCE_CADENCE` + `governanceEventsForMonth()` overlay Michael's recurring
+reporting deadlines onto the Calendar as gold `.cal-gov` chips: monthly FM dashboard,
+quarterly SHE pack and ECT Board SHE report (quarters = Jan/Apr/Jul/Oct). The
+*cadence* is fixed in code; the day-of-month is **a placeholder, not researched** —
+`GOV_DAY_DEFAULTS` is a guess, editable per-row on the Calendar page and stored in
+`state.ui.govDays`. `state.ui.hideGovernance` turns the overlay off entirely.
+
+Two things here are load-bearing:
+
+- Governance events **`unshift` onto the day's item list**, never `push` — day cells
+  render `slice(0, 3)`, so a board deadline would silently vanish behind three ordinary
+  tasks otherwise.
+- The day-input handler **blurs the input and defers `renderPage()` by a tick**.
+  `renderPage()` replaces `#content` wholesale; doing that synchronously inside a
+  `change` handler tears the focused input out mid-blur and Chrome throws on the
+  `innerHTML` assignment. Verified: it threw before the fix, clean after.
+
+## Stage-gate governance (`stageGate` on projects)
+
+Projects carry a `stageGate` field — `STAGE_GATES = ["Concept", "Business Case",
+"Approved", "Procurement/Tender", "Delivery", "Close-out"]` — separate from `status`
+(Not Started/In Progress/Blocked/Done, which tracks day-to-day task progress).
+`stageGate` tracks formal governance position instead: has this actually been through
+a business case and sign-off, not just "someone's working on it." Edited via the same
+button-picker pattern as `status` (`#pStageGate` mirrors `#pStatus` in
+`openProjectModal`), rendered via `stageGateChip()` on the project list row and detail
+header. Old saved projects with no `stageGate` fall back to `"Concept"` at render time
+(`p.stageGate || STAGE_GATES[0]`) — no migration needed, same trick as everywhere else
+in this file that's added a project field after projects already existed.
+
+Deliberately **not** a separate log/audit-trail entity: recording *who* approved a gate
+move belongs in the existing Decisions Log (a decision like "Approved to proceed to
+Procurement — signed off by ECT Board, 12 Aug" is exactly what that log is for). Adding
+an eighth near-duplicate log type for gate approvals specifically would just be the
+Decisions Log with extra steps — don't build one.
+
+## Budget Checkpoints (`budgetCheckpoints`)
+
+Sits alongside `stageGate`, not inside the existing Budget page's allocated-vs-spent
+tracking — different question. The Budget page (`budgetLines`) answers "what have we
+actually spent against the pot." `budgetCheckpoints` answers "how has the estimate
+itself evolved as this moved through governance" — an indicative figure at Business
+Case, a signed-off number at Approved, a contracted sum at Procurement/Tender, an
+actual at Close-out. Each checkpoint records `{ stage, amount, date, notes }`; the
+render sorts by `STAGE_GATES.indexOf(stage)` rather than entry order, so the trail
+always reads in gate order even if someone logs a later stage before backfilling an
+earlier one. `amount` is stored as the raw string `FormData` gives it (same as every
+other `PROJECT_LOG_ENTITIES` field) — `money()` coerces it with `Number(n) || 0` at
+render time, so don't add a parseFloat step here that the rest of the file doesn't have.
+
+The Tender & Procurement Register (`tenders`) was added to
+track ITTs/tenders per project (route, status, issue/return dates, est. value, owner)
+now that the Ledger's "Tender & Contract" issue category can promote into a
+"Contractor-Managed" project. It reuses `logStatusChip()` (extended with
+Draft/Issued/Questions/Evaluation/Awarded/Cancelled) rather than inventing a second
+status-chip renderer.
 
 ## Import/export
 
@@ -120,12 +195,27 @@ not more regex here.
 
 ## Testing
 
-There's no bundled test framework. This file has been verified with ad hoc Playwright
-scripts run against it directly via a `file://` URL (headless Chromium at
-`/opt/pw-browsers` in the dev sandbox) — add a project, add tasks/subtasks, exercise
-each modal, check dark mode and a ~390px mobile viewport, reload the page to confirm
-`localStorage` persistence. Those scripts weren't checked into the repo (they were
-scratch files); recreate them rather than assuming they exist somewhere.
+`standalone/tests/` holds a Playwright regression suite, same shape as the Ledger's:
+
+```bash
+cd standalone/tests && npm install   # first time only
+bash standalone/tests/run-all.sh     # runs every test_*.js, from anywhere
+```
+
+The runner greps output for `FAILED:`/`PAGEERROR`/`CONSOLE ERROR`, so tests just print
+`ok: <label>` / `FAILED: <label>` and let it decide. Chromium is preinstalled at
+`/opt/pw-browsers/chromium` in Claude Code web sessions — never run
+`playwright install`.
+
+**Assert against `#content`, never `document.body`.** The entire app `<script>` lives
+inside `<body>`, so `page.textContent('body')` returns the source code too — a check
+like `body.includes('Lessons Learned')` passes against the string literal in the
+source even when the feature rendered nothing at all. Four assertions silently passed
+this way while the suite was being written. Anything not inside `#content` (the
+top-bar quick-add, the nav) needs an element locator rather than a text match.
+
+Areas older than the suite (Gantt drag, modals, theme, PWA update) are still only
+covered by ad hoc scripts — extend `tests/` rather than writing new throwaway ones.
 
 ## Gotchas hit once already — don't reintroduce these
 
