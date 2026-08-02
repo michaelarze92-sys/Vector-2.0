@@ -595,6 +595,13 @@
   const STATUSES = ["Not Started", "In Progress", "Blocked", "Done"];
   const PRIORITIES = ["Low", "Medium", "High", "Critical"];
   const CATEGORIES = ["Compliance", "Refurbishment", "Contractor-Managed", "Licensing", "Other"];
+  const STAGE_GATES = ["Concept", "Business Case", "Approved", "Procurement/Tender", "Delivery", "Close-out"];
+  function stageGateChip(stage) {
+    stage = stage || STAGE_GATES[0];
+    const idx = STAGE_GATES.indexOf(stage);
+    const cls = idx <= 1 ? "chip-notstarted" : idx <= 4 ? "chip-inprogress" : "chip-done";
+    return `<span class="chip ${cls}" title="Stage gate">${escapeHtml(stage)}</span>`;
+  }
 
   /* ============================== DATE UTILS ============================== */
   const DAY_MS = 86400000;
@@ -1127,6 +1134,7 @@
     const spend = projectSpend(p.id);
     return `<div class="task-row" data-open-project="${p.id}" style="cursor:pointer">
       <span class="chip chip-${STATUS_CLASS[p.status]}">${STATUS_ICON[p.status]}</span>
+      ${stageGateChip(p.stageGate)}
       <div class="t-main">
         <div class="t-name">${escapeHtml(p.name)}</div>
         <div class="t-meta">${venue ? escapeHtml(venue.name) : "No venue"} · ${escapeHtml(p.category || "Other")} · ${openTasks}/${tasks.length} open tasks${openRisks ? ` · ${openRisks} open risk${openRisks === 1 ? "" : "s"}` : ""}</div>
@@ -1164,6 +1172,7 @@
         </div>
         <div class="page-actions">
           <span class="chip chip-${STATUS_CLASS[p.status]}">${STATUS_ICON[p.status]}${p.status}</span>
+          ${stageGateChip(p.stageGate)}
           ${p.licenceRiskFlag ? `<span class="chip chip-blocked">${ICON.shield} Licence risk</span>` : ""}
           ${p.gamingFloorDisruption ? `<span class="chip" style="background:rgba(201,132,11,0.14);color:var(--pr-high)">${ICON.disruption} Floor disruption</span>` : ""}
           <button class="btn" data-action="edit-project" data-id="${p.id}">Edit</button>
@@ -1887,9 +1896,10 @@
     const existing = id ? projectById(id) : null;
     const draft = existing ? JSON.parse(JSON.stringify(existing)) : {
       id: null, name: "", venueId: state.venues[0] ? state.venues[0].id : null, category: "Other", owner: "",
-      status: "Not Started", budgetAllocated: 0, startDate: todayISO(), targetEndDate: "", actualEndDate: "",
+      status: "Not Started", stageGate: STAGE_GATES[0], budgetAllocated: 0, startDate: todayISO(), targetEndDate: "", actualEndDate: "",
       licenceRiskFlag: false, gamingFloorDisruption: false,
     };
+    if (!draft.stageGate) draft.stageGate = STAGE_GATES[0];
 
     dlg.innerHTML = `
       <div class="modal-head"><h3>${existing ? "Edit project" : "New project"}</h3><button class="icon-x" data-close>${ICON.x}</button></div>
@@ -1901,6 +1911,7 @@
         </div>
         <div class="field"><label>Owner</label><input type="text" id="pOwner" value="${escapeHtml(draft.owner)}" placeholder="e.g. Venue Director, Dalkia" /></div>
         <div class="field"><label>Status</label><div class="status-pick" id="pStatus">${STATUSES.map(s => `<button type="button" data-v="${s}" class="${draft.status === s ? "active" : ""}">${s}</button>`).join("")}</div></div>
+        <div class="field"><label>Stage gate<div class="hint">Governance checkpoint — log who approved the move in this project's Decisions Log</div></label><div class="status-pick" id="pStageGate">${STAGE_GATES.map(g => `<button type="button" data-v="${g}" class="${draft.stageGate === g ? "active" : ""}">${g}</button>`).join("")}</div></div>
         <div class="field-row">
           <div class="field"><label>Start date</label><input type="date" id="pStart" value="${draft.startDate || ""}" /></div>
           <div class="field"><label>Target end date</label><input type="date" id="pEnd" value="${draft.targetEndDate || ""}" /></div>
@@ -1915,6 +1926,7 @@
       </div>
     `;
     dlg.querySelector("#pStatus").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; draft.status = b.dataset.v; dlg.querySelectorAll("#pStatus button").forEach(x => x.classList.toggle("active", x === b)); });
+    dlg.querySelector("#pStageGate").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; draft.stageGate = b.dataset.v; dlg.querySelectorAll("#pStageGate button").forEach(x => x.classList.toggle("active", x === b)); });
     dlg.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => dlg.close()));
     const deleteBtn = dlg.querySelector("#pDelete");
     if (deleteBtn) deleteBtn.addEventListener("click", () => {
@@ -1928,7 +1940,7 @@
       const name = dlg.querySelector("#pName").value.trim(); if (!name) { dlg.querySelector("#pName").focus(); return; }
       const payload = {
         id: draft.id || uid(), name, venueId: dlg.querySelector("#pVenue").value, category: dlg.querySelector("#pCategory").value,
-        owner: dlg.querySelector("#pOwner").value.trim(), status: draft.status, budgetAllocated: Number(dlg.querySelector("#pBudget").value) || 0,
+        owner: dlg.querySelector("#pOwner").value.trim(), status: draft.status, stageGate: draft.stageGate || STAGE_GATES[0], budgetAllocated: Number(dlg.querySelector("#pBudget").value) || 0,
         startDate: dlg.querySelector("#pStart").value || null, targetEndDate: dlg.querySelector("#pEnd").value || null, actualEndDate: draft.actualEndDate || null,
         licenceRiskFlag: dlg.querySelector("#pLicence").checked, gamingFloorDisruption: dlg.querySelector("#pDisrupt").checked,
       };

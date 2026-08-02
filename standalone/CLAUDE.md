@@ -49,6 +49,25 @@ handlers in `bindProjectDetailEvents()` and `importBackup()` already iterate tha
 config. If you ever find yourself hand-writing a delete handler for a new record type,
 you've missed the existing pattern.
 
+## Stage-gate governance (`stageGate` on projects)
+
+Projects carry a `stageGate` field — `STAGE_GATES = ["Concept", "Business Case",
+"Approved", "Procurement/Tender", "Delivery", "Close-out"]` — separate from `status`
+(Not Started/In Progress/Blocked/Done, which tracks day-to-day task progress).
+`stageGate` tracks formal governance position instead: has this actually been through
+a business case and sign-off, not just "someone's working on it." Edited via the same
+button-picker pattern as `status` (`#pStageGate` mirrors `#pStatus` in
+`openProjectModal`), rendered via `stageGateChip()` on the project list row and detail
+header. Old saved projects with no `stageGate` fall back to `"Concept"` at render time
+(`p.stageGate || STAGE_GATES[0]`) — no migration needed, same trick as everywhere else
+in this file that's added a project field after projects already existed.
+
+Deliberately **not** a separate log/audit-trail entity: recording *who* approved a gate
+move belongs in the existing Decisions Log (a decision like "Approved to proceed to
+Procurement — signed off by ECT Board, 12 Aug" is exactly what that log is for). Adding
+an eighth near-duplicate log type for gate approvals specifically would just be the
+Decisions Log with extra steps — don't build one.
+
 The Tender & Procurement Register (`tenders`) is the newest of the seven — added to
 track ITTs/tenders per project (route, status, issue/return dates, est. value, owner)
 now that the Ledger's "Tender & Contract" issue category can promote into a
