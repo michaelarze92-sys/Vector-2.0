@@ -64,7 +64,15 @@ if (fs.existsSync(slimPath)) {
   const slim = fs.readFileSync(slimPath, 'utf8');
   // the registration is gated on the manifest <link>, so stripping the link disarms it
   check('slim build has no manifest link', !/<link[^>]+rel="manifest"/.test(slim));
-  check('slim build has no icon references', !/icon-\d+\.png/.test(slim));
+
+  /* Only markup references matter: those fetch, and the icons aren't deployed beside the
+     Artifact, so each one is a 404. Icon paths inside JS are inert here — the code that
+     uses them is gated on the manifest link, which the slim build doesn't have. This
+     check was "no icon-N.png anywhere" and correctly caught the notification code
+     referencing icons; the fix was to gate that code, not to hide the string. */
+  check('slim build fetches no icons', !/(?:href|src)\s*=\s*"[^"]*icon-\d+\.png/.test(slim));
+  check('slim build cannot reach the notification path',
+    /!!document\.querySelector\('link\[rel="manifest"\]'\)/.test(slim));
 }
 
 console.log(failed ? '\nBUILD INTEGRITY: FAILED' : '\nBUILD INTEGRITY: OK');

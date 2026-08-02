@@ -3762,8 +3762,16 @@
   function notificationsOn(){
     try { return localStorage.getItem(NOTIFY_KEY) === "on"; } catch(e){ return false; }
   }
+  /* The manifest link is the same gate the service-worker registration uses, and it has
+     to be here too. Without it, this is the Artifact build: `"serviceWorker" in navigator`
+     is still true, so the toggle would sail past — and then `serviceWorker.ready` never
+     resolves, because nothing is ever registered. The result is a switch that appears to
+     work and then hangs forever with no error. Notifications need a real worker, which
+     means the GitHub Pages build, installed. */
   function notificationsSupported(){
-    return typeof Notification !== "undefined" && "serviceWorker" in navigator;
+    return typeof Notification !== "undefined"
+        && "serviceWorker" in navigator
+        && !!document.querySelector('link[rel="manifest"]');
   }
 
   function reminderSummary(){
@@ -3876,7 +3884,12 @@
   function renderNotifyToggle(){
     var btn = document.getElementById("notifyToggleBtn");
     if(!btn) return;
-    if(!notificationsSupported()){ btn.textContent = "Reminders unavailable in this browser"; btn.disabled = true; return; }
+    if(!notificationsSupported()){
+      btn.textContent = "Reminders — open the installed app";
+      btn.title = "Reminders need the GitHub Pages version added to your home screen; they can't work in this preview.";
+      btn.disabled = true;
+      return;
+    }
     btn.textContent = notificationsOn() ? "Daily reminders: ON" : "Daily reminders: off";
   }
 
