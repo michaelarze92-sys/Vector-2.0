@@ -608,3 +608,38 @@ facts. The pane says plainly it is not legal advice.
   `lead.issue` there crashed the entire reply. Guard it.
 - `vLeaseAnswer` deliberately does **not** trigger on "landlord" alone — that's a
   site-details lookup and search answers it better.
+
+## The two imports are not the same thing
+
+Both take `.json`, and confusing them was a live data-loss path.
+
+| Control | Writes | Touches IndexedDB |
+|---|---|---|
+| ⋮ → **Import backup (.json)** | every `BACKUP_KEYS` key present in the file, plus `issues` | yes — see below |
+| Reports → Import → **Project Board backup** | `PM_BOARD_KEY` only | **no** |
+
+`importPmBackup` writes exactly one key. It cannot affect issues, site profiles, leases or
+photos, and `test_import_safety.js` asserts that directly rather than by inspection.
+
+The full restore is a **restore, not a merge**: `issues` is replaced wholesale, and
+`restoreLocalState` overwrites each key *present in the file* while leaving keys the file
+doesn't contain alone.
+
+### `files` absent ≠ `files: []`
+
+The export has a fallback path that writes a backup with **no `files` key** when it can't
+read IndexedDB ("Backup saved without attachments"). That is not a claim that there are no
+photos — it's an admission it couldn't look. Clearing IndexedDB on it destroyed every
+photo and document on the device, unrecoverably.
+
+- **no `files` key** → don't touch stored files at all; say so in the confirm and the toast
+- **`files: []`** → the source genuinely had none, so a faithful restore clears — but the
+  confirm states how many will be removed first, so it's an informed choice
+- **`files: [...]`** → replace, stating how many are being replaced
+
+### Wrong-file guard
+
+A Project Board backup fed to the Ledger's restore has no `issues`, so the restore
+faithfully replaced the entire estate with nothing. The confirm did say "Importing 0
+issue(s)" — nowhere near loud enough. Both wrong-file cases are now refused before any
+confirm is offered, and the Project Board one names the control that does the right thing.

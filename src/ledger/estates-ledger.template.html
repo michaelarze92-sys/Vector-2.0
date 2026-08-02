@@ -5579,14 +5579,55 @@
     reader.onload = function(){
       try{
         var data = JSON.parse(reader.result);
+
+        /* Wrong-file guard. Both apps export .json, and a Project Board backup fed to
+           THIS control has no `issues`, so the restore would faithfully replace the whole
+           ledger with nothing. The confirm did say "Importing 0 issue(s)", which is not
+           nearly a loud enough warning for wiping an estate. */
+        if(!Array.isArray(data) && Array.isArray(data.projects) && !Array.isArray(data.issues) && !data.localState){
+          showToast("That's a Project Board backup, not a Ledger backup. Import it under Reports → Import → Project Board backup — that only updates project data and leaves the rest of the ledger alone.");
+          document.getElementById("importFile").value = "";
+          return;
+        }
+        if(!Array.isArray(data) && !Array.isArray(data.issues) && !data.localState){
+          showToast("That doesn't look like a Ledger backup — no issues or saved sections in it.");
+          document.getElementById("importFile").value = "";
+          return;
+        }
+
         var incoming = Array.isArray(data) ? data : (data.issues || []);
-        var incomingFiles = data.files || [];
-        var extra = incomingFiles.length ? (" and " + incomingFiles.length + " file(s)") : "";
+        var incomingFiles = (!Array.isArray(data) && data.files) || [];
+
+        /* "No files key" and "files: []" mean completely different things, and treating
+           them the same destroyed photos. A backup written by the export's fallback path
+           ("Backup saved without attachments — couldn't read local file storage") has no
+           files key at all: it isn't saying you have no photos, it's saying it couldn't
+           look. Clearing IndexedDB on that is unrecoverable. */
+        var hasFilesKey = !Array.isArray(data) && Object.prototype.hasOwnProperty.call(data, "files");
         var older = !data.localState;
         var warn = older
           ? " This backup predates site profiles and Board Report data being included, so those will be left as they are on this device."
           : "";
-        confirmAction("Replace current ledger?", "Importing " + incoming.length + " issue(s)" + extra + " will replace everything currently in this browser. Export a backup first if unsure." + warn, function(){
+
+        idbAll().catch(function(){ return []; }).then(function(existingFiles){
+          var here = existingFiles.length;
+          var extra, fileNote;
+          if(!hasFilesKey){
+            extra = "";
+            fileNote = here
+              ? " This backup carries no photo or document data at all, so the " + here + " already stored here will be left untouched."
+              : " This backup carries no photo or document data.";
+          } else if(!incomingFiles.length){
+            extra = "";
+            fileNote = here
+              ? " It contains no photos or documents, so the " + here + " stored here will be removed."
+              : "";
+          } else {
+            extra = " and " + incomingFiles.length + " file(s)";
+            fileNote = here ? " The " + here + " currently stored here will be replaced." : "";
+          }
+
+        confirmAction("Replace current ledger?", "Importing " + incoming.length + " issue(s)" + extra + " will replace everything currently in this browser. Export a backup first if unsure." + warn + fileNote, function(){
           // v2 backups carry every key verbatim; restore those first, then re-read
           restoreLocalState(data.localState);
           issues = incoming;
@@ -5603,15 +5644,21 @@
           refCategories = load(REF_CATS_KEY, refCategories);
           contractorEmailMap = load(CONTRACTOR_EMAIL_KEY, contractorEmailMap);
           applyTheme(load(THEME_KEY, null));
-          idbClear().then(function(){
-            return Promise.all(incomingFiles.map(function(f){
-              return idbPut({id:f.id, issueId:f.issueId, kind:f.kind, site:f.site, name:f.name, type:f.type, size:f.size, addedAt:f.addedAt, blob: base64ToBlob(f.dataBase64, f.type)});
-            }));
-          }).then(function(){
+          // only touch stored files when the backup actually speaks to them
+          var filePhase = hasFilesKey
+            ? idbClear().then(function(){
+                return Promise.all(incomingFiles.map(function(f){
+                  return idbPut({id:f.id, issueId:f.issueId, kind:f.kind, site:f.site, name:f.name, type:f.type, size:f.size, addedAt:f.addedAt, blob: base64ToBlob(f.dataBase64, f.type)});
+                }));
+              })
+            : Promise.resolve();
+
+          filePhase.then(function(){
             renderAll();
             refreshFileCounts();
-            showToast("Ledger imported.");
+            showToast(hasFilesKey ? "Ledger imported." : "Ledger imported — photos and documents on this device were left as they were.");
           });
+        });
         });
       }catch(err){
         showToast("Couldn't read that file — is it a ledger backup .json?");
