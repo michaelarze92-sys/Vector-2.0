@@ -499,6 +499,10 @@
   .icon-x { flex: none; background: none; border: none; cursor: pointer; color: var(--ink-muted); padding: 4px; display: flex; }
   .icon-x.has-note { color: var(--accent); }
   .icon-x:hover { color: var(--st-blocked); }
+  .icon-edit { flex: none; background: none; border: none; cursor: pointer; color: var(--ink-muted); padding: 4px; display: flex; }
+  .icon-edit:hover { color: var(--accent); }
+  .row-actions { display: flex; gap: 2px; justify-content: flex-end; }
+  .log-row-editing { background: var(--accent-soft) !important; }
   .status-pick, .priority-pick { display: flex; gap: 6px; flex-wrap: wrap; }
   .status-pick button, .priority-pick button {
     border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 6px 11px;
@@ -612,6 +616,7 @@
     trash: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
     mail: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
     tender: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><line x1="2" y1="13" x2="22" y2="13"/></svg>',
+    edit: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
     kanban: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg>',
     retro: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/><path d="M12 8v4.5l3 1.8"/></svg>',
   };
@@ -757,6 +762,17 @@
   ];
   let activePage = "dashboard";
   let viewingProjectId = null;
+  // Which single log row (Risk Register, Decisions, etc.) is mid-edit right now, if any.
+  // Deliberately not part of `state` — this is UI-only, same treatment as
+  // viewingProjectId, and must never survive a project switch (cleared in viewProject()
+  // and go()) or it'd point at a record from a different project after navigating away.
+  let editingLogEntry = null; // { key, id } | null
+  function editingRecord(key) {
+    return editingLogEntry && editingLogEntry.key === key ? (state[key] || []).find(r => r.id === editingLogEntry.id) : null;
+  }
+  function selOpts(options, current) {
+    return options.map(o => `<option ${o === current ? "selected" : ""}>${escapeHtml(o)}</option>`).join("");
+  }
 
   function renderNav() {
     const list = document.getElementById("navList");
@@ -773,8 +789,8 @@
     `;
   }
 
-  function go(pageId) { activePage = pageId; renderNav(); renderPage(); closeNav(); }
-  function viewProject(id) { viewingProjectId = id; activePage = "project-detail"; renderNav(); renderPage(); closeNav(); }
+  function go(pageId) { activePage = pageId; editingLogEntry = null; renderNav(); renderPage(); closeNav(); }
+  function viewProject(id) { viewingProjectId = id; activePage = "project-detail"; editingLogEntry = null; renderNav(); renderPage(); closeNav(); }
 
   document.getElementById("navList").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-nav]"); if (!btn) return; go(btn.dataset.nav);
@@ -1213,6 +1229,11 @@
     const tenders = projectTenders(id);
     const budgetCheckpoints = projectBudgetCheckpoints(id);
     const lessons = projectLessons(id);
+    // Each log's form doubles as its edit form when one of that log's rows is being
+    // edited — see editingRecord(). null on every card except the one row mid-edit.
+    const editRisk = editingRecord("risks"), editDecision = editingRecord("decisions"), editQa = editingRecord("qaItems");
+    const editDoc = editingRecord("documents"), editContact = editingRecord("contacts"), editNote = editingRecord("meetingNotes");
+    const editTender = editingRecord("tenders"), editCheckpoint = editingRecord("budgetCheckpoints"), editLesson = editingRecord("lessons");
 
     return `
       <div class="page-head">
@@ -1246,18 +1267,19 @@
         <div class="card-head"><h2>${ICON.budget} Budget Checkpoints</h2><span class="g-count">${budgetCheckpoints.length}</span></div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Stage</th><th>Amount</th><th>Date</th><th>Notes</th><th></th></tr></thead>
-          <tbody>${[...budgetCheckpoints].sort((a, b) => STAGE_GATES.indexOf(a.stage) - STAGE_GATES.indexOf(b.stage)).map(b => `<tr>
+          <tbody>${[...budgetCheckpoints].sort((a, b) => STAGE_GATES.indexOf(a.stage) - STAGE_GATES.indexOf(b.stage)).map(b => `<tr class="${editCheckpoint && editCheckpoint.id === b.id ? "log-row-editing" : ""}">
             <td>${escapeHtml(b.stage)}</td><td>${money(b.amount)}</td><td>${fmtShort(b.date)}</td><td>${escapeHtml(b.notes || "—")}</td>
-            <td><button class="icon-x" data-delete-budgetcheckpoint="${b.id}">${ICON.x}</button></td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-budgetcheckpoint="${b.id}">${ICON.edit}</button><button class="icon-x" data-delete-budgetcheckpoint="${b.id}">${ICON.x}</button></div></td>
           </tr>`).join("") || `<tr><td colspan="5">${emptyState("No budget checkpoints logged yet — record the estimate at each gate as it firms up.")}</td></tr>`}</tbody>
         </table></div>
         <div class="card-body pad">
-          <form class="inline-add-form" data-add-budgetcheckpoint="${id}">
-            <select name="stage">${STAGE_GATES.map(g => `<option ${g === "Business Case" ? "selected" : ""}>${g}</option>`).join("")}</select>
-            <input type="number" name="amount" placeholder="Amount (£)" min="0" step="100" required />
-            <input type="date" name="date" value="${todayISO()}" />
-            <input class="grow2" type="text" name="notes" placeholder="Notes — e.g. lowest compliant bid, XYZ Ltd" />
-            <button class="btn btn-sm" type="submit">${ICON.plus} Add checkpoint</button>
+          <form class="inline-add-form" data-add-budgetcheckpoint="${id}" data-edit-id="${editCheckpoint ? editCheckpoint.id : ""}">
+            <select name="stage">${selOpts(STAGE_GATES, editCheckpoint ? editCheckpoint.stage : "Business Case")}</select>
+            <input type="number" name="amount" placeholder="Amount (£)" min="0" step="100" value="${editCheckpoint ? escapeHtml(editCheckpoint.amount) : ""}" required />
+            <input type="date" name="date" value="${editCheckpoint ? editCheckpoint.date : todayISO()}" />
+            <input class="grow2" type="text" name="notes" placeholder="Notes — e.g. lowest compliant bid, XYZ Ltd" value="${editCheckpoint ? escapeHtml(editCheckpoint.notes || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editCheckpoint ? ICON.check : ICON.plus} ${editCheckpoint ? "Save changes" : "Add checkpoint"}</button>
+            ${editCheckpoint ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="budgetCheckpoints">Cancel</button>` : ""}
           </form>
         </div>
       </div>
@@ -1266,22 +1288,23 @@
         <div class="card-head"><h2>${ICON.tender} Tender &amp; Procurement Register</h2><span class="g-count">${tenders.length}</span></div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Tender</th><th>Route</th><th>Status</th><th>Issued</th><th>Return due</th><th>Est. value</th><th>Owner</th><th></th></tr></thead>
-          <tbody>${tenders.map(t => `<tr>
+          <tbody>${tenders.map(t => `<tr class="${editTender && editTender.id === t.id ? "log-row-editing" : ""}">
             <td>${escapeHtml(t.title)}</td><td>${escapeHtml(t.route || "—")}</td><td>${logStatusChip(t.status)}</td>
             <td>${fmtShort(t.issueDate)}</td><td>${fmtShort(t.returnDate)}</td><td>${escapeHtml(t.estValue || "—")}</td><td>${escapeHtml(t.owner || "—")}</td>
-            <td><button class="icon-x" data-delete-tender="${t.id}">${ICON.x}</button></td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-tender="${t.id}">${ICON.edit}</button><button class="icon-x" data-delete-tender="${t.id}">${ICON.x}</button></div></td>
           </tr>`).join("") || `<tr><td colspan="8">${emptyState("No tenders logged yet.")}</td></tr>`}</tbody>
         </table></div>
         <div class="card-body pad">
-          <form class="inline-add-form" data-add-tender="${id}">
-            <input class="grow2" type="text" name="title" placeholder="Tender / scope" required />
-            <select name="route"><option selected>Single-stage</option><option>Two-stage</option><option>Framework call-off</option><option>Direct award</option><option>Mini-competition</option><option>Other</option></select>
-            <select name="status"><option selected>Draft</option><option>Issued</option><option>Questions</option><option>Evaluation</option><option>Awarded</option><option>Cancelled</option></select>
-            <input type="date" name="issueDate" placeholder="Issued" />
-            <input type="date" name="returnDate" placeholder="Return due" />
-            <input type="text" name="estValue" placeholder="Est. value" />
-            <input type="text" name="owner" placeholder="Owner" />
-            <button class="btn btn-sm" type="submit">${ICON.plus} Add tender</button>
+          <form class="inline-add-form" data-add-tender="${id}" data-edit-id="${editTender ? editTender.id : ""}">
+            <input class="grow2" type="text" name="title" placeholder="Tender / scope" value="${editTender ? escapeHtml(editTender.title) : ""}" required />
+            <select name="route">${selOpts(["Single-stage", "Two-stage", "Framework call-off", "Direct award", "Mini-competition", "Other"], editTender ? editTender.route : "Single-stage")}</select>
+            <select name="status">${selOpts(["Draft", "Issued", "Questions", "Evaluation", "Awarded", "Cancelled"], editTender ? editTender.status : "Draft")}</select>
+            <input type="date" name="issueDate" placeholder="Issued" value="${editTender ? editTender.issueDate || "" : ""}" />
+            <input type="date" name="returnDate" placeholder="Return due" value="${editTender ? editTender.returnDate || "" : ""}" />
+            <input type="text" name="estValue" placeholder="Est. value" value="${editTender ? escapeHtml(editTender.estValue || "") : ""}" />
+            <input type="text" name="owner" placeholder="Owner" value="${editTender ? escapeHtml(editTender.owner || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editTender ? ICON.check : ICON.plus} ${editTender ? "Save changes" : "Add tender"}</button>
+            ${editTender ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="tenders">Cancel</button>` : ""}
           </form>
         </div>
       </div>
@@ -1290,12 +1313,13 @@
         <div class="card-head"><h2>${ICON.note} Meeting Notes &amp; Transcripts</h2><span class="g-count">${meetingNotes.length}</span></div>
         <div class="card-body pad" style="display:flex;flex-direction:column;gap:8px">
           ${meetingNotes.length ? [...meetingNotes].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(n => `
-            <details class="note-card">
+            <details class="note-card" ${editNote && editNote.id === n.id ? "open" : ""}>
               <summary>
                 ${ICON.chevron.replace('width="13" height="13"', 'width="12" height="12" class="chevron"')}
                 <span class="n-source">${escapeHtml(n.source || "Note")}</span>
                 <span class="n-title">${escapeHtml(n.title)}</span>
                 <span class="n-date">${fmtShort(n.date)}</span>
+                <button type="button" class="icon-edit" data-edit-meetingnote="${n.id}">${ICON.edit}</button>
                 <button type="button" class="icon-x" data-delete-meetingnote="${n.id}">${ICON.x}</button>
               </summary>
               <div class="n-body">${escapeHtml(n.body || "")}</div>
@@ -1303,16 +1327,19 @@
           `).join("") : emptyState("No meeting notes or transcripts yet — paste one in below.")}
         </div>
         <div class="card-body pad" style="border-top:1px solid var(--border)">
-          <form class="note-form-grid" data-add-meetingnote="${id}">
+          <form class="note-form-grid" data-add-meetingnote="${id}" data-edit-id="${editNote ? editNote.id : ""}">
             <div class="field-row">
-              <div class="field"><label>Date</label><input type="date" name="date" value="${todayISO()}" /></div>
+              <div class="field"><label>Date</label><input type="date" name="date" value="${editNote ? editNote.date || "" : todayISO()}" /></div>
               <div class="field"><label>Source</label>
-                <select name="source"><option>Meeting</option><option>Call</option><option>Email</option><option selected>Transcript</option><option>Other</option></select>
+                <select name="source">${selOpts(["Meeting", "Call", "Email", "Transcript", "Other"], editNote ? editNote.source : "Transcript")}</select>
               </div>
             </div>
-            <input type="text" name="title" placeholder="Title — e.g. Call with WCC Planning Officer" required style="border:1px solid var(--border);background:var(--surface-2);color:var(--ink);border-radius:var(--radius-sm);padding:9px 10px;font-size:13.5px;font-family:inherit" />
-            <textarea name="body" placeholder="Paste the transcript, email text, or meeting notes here…"></textarea>
-            <button class="btn btn-sm btn-accent" type="submit" style="align-self:flex-start">${ICON.plus} Add note</button>
+            <input type="text" name="title" placeholder="Title — e.g. Call with WCC Planning Officer" value="${editNote ? escapeHtml(editNote.title) : ""}" required style="border:1px solid var(--border);background:var(--surface-2);color:var(--ink);border-radius:var(--radius-sm);padding:9px 10px;font-size:13.5px;font-family:inherit" />
+            <textarea name="body" placeholder="Paste the transcript, email text, or meeting notes here…">${editNote ? escapeHtml(editNote.body || "") : ""}</textarea>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-sm btn-accent" type="submit" style="align-self:flex-start">${editNote ? ICON.check : ICON.plus} ${editNote ? "Save changes" : "Add note"}</button>
+              ${editNote ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="meetingNotes">Cancel</button>` : ""}
+            </div>
           </form>
         </div>
       </div>
@@ -1321,21 +1348,22 @@
         <div class="card-head"><h2>${ICON.risk} Risk Register</h2><span class="g-count">${risks.length}</span></div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th><th>Owner</th><th>Status</th><th></th></tr></thead>
-          <tbody>${risks.map(r => `<tr>
+          <tbody>${risks.map(r => `<tr class="${editRisk && editRisk.id === r.id ? "log-row-editing" : ""}">
             <td>${escapeHtml(r.risk)}</td><td>${escapeHtml(r.likelihood)}</td><td>${escapeHtml(r.impact)}</td>
             <td>${escapeHtml(r.mitigation || "—")}</td><td>${escapeHtml(r.owner || "—")}</td><td>${logStatusChip(r.status)}</td>
-            <td><button class="icon-x" data-delete-risk="${r.id}">${ICON.x}</button></td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-risk="${r.id}">${ICON.edit}</button><button class="icon-x" data-delete-risk="${r.id}">${ICON.x}</button></div></td>
           </tr>`).join("") || `<tr><td colspan="7">${emptyState("No risks logged yet.")}</td></tr>`}</tbody>
         </table></div>
         <div class="card-body pad">
-          <form class="inline-add-form" data-add-risk="${id}">
-            <input class="grow2" type="text" name="risk" placeholder="Risk" required />
-            <select name="likelihood"><option>Low</option><option selected>Medium</option><option>High</option></select>
-            <select name="impact"><option>Low</option><option selected>Medium</option><option>High</option></select>
-            <input class="grow2" type="text" name="mitigation" placeholder="Mitigation" />
-            <input type="text" name="owner" placeholder="Owner" />
-            <select name="status"><option selected>Open</option><option>Mitigated</option><option>Closed</option><option>Realised</option></select>
-            <button class="btn btn-sm" type="submit">${ICON.plus} Add risk</button>
+          <form class="inline-add-form" data-add-risk="${id}" data-edit-id="${editRisk ? editRisk.id : ""}">
+            <input class="grow2" type="text" name="risk" placeholder="Risk" value="${editRisk ? escapeHtml(editRisk.risk) : ""}" required />
+            <select name="likelihood">${selOpts(["Low", "Medium", "High"], editRisk ? editRisk.likelihood : "Medium")}</select>
+            <select name="impact">${selOpts(["Low", "Medium", "High"], editRisk ? editRisk.impact : "Medium")}</select>
+            <input class="grow2" type="text" name="mitigation" placeholder="Mitigation" value="${editRisk ? escapeHtml(editRisk.mitigation || "") : ""}" />
+            <input type="text" name="owner" placeholder="Owner" value="${editRisk ? escapeHtml(editRisk.owner || "") : ""}" />
+            <select name="status">${selOpts(["Open", "Mitigated", "Closed", "Realised"], editRisk ? editRisk.status : "Open")}</select>
+            <button class="btn btn-sm" type="submit">${editRisk ? ICON.check : ICON.plus} ${editRisk ? "Save changes" : "Add risk"}</button>
+            ${editRisk ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="risks">Cancel</button>` : ""}
           </form>
         </div>
       </div>
@@ -1344,20 +1372,21 @@
         <div class="card-head"><h2>${ICON.decision} Decisions Log</h2><span class="g-count">${decisions.length}</span></div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Date</th><th>Decision</th><th>Reason</th><th>Decided by</th><th>Impact</th><th></th></tr></thead>
-          <tbody>${decisions.map(d => `<tr>
+          <tbody>${decisions.map(d => `<tr class="${editDecision && editDecision.id === d.id ? "log-row-editing" : ""}">
             <td>${fmtShort(d.date)}</td><td>${escapeHtml(d.decision)}</td><td>${escapeHtml(d.reason || "—")}</td>
             <td>${escapeHtml(d.decidedBy || "—")}</td><td>${escapeHtml(d.impact || "—")}</td>
-            <td><button class="icon-x" data-delete-decision="${d.id}">${ICON.x}</button></td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-decision="${d.id}">${ICON.edit}</button><button class="icon-x" data-delete-decision="${d.id}">${ICON.x}</button></div></td>
           </tr>`).join("") || `<tr><td colspan="6">${emptyState("No decisions logged yet.")}</td></tr>`}</tbody>
         </table></div>
         <div class="card-body pad">
-          <form class="inline-add-form" data-add-decision="${id}">
-            <input type="date" name="date" value="${todayISO()}" />
-            <input class="grow2" type="text" name="decision" placeholder="Decision" required />
-            <input class="grow2" type="text" name="reason" placeholder="Reason" />
-            <input type="text" name="decidedBy" placeholder="Decided by" />
-            <input type="text" name="impact" placeholder="Impact / cost / time" />
-            <button class="btn btn-sm" type="submit">${ICON.plus} Add decision</button>
+          <form class="inline-add-form" data-add-decision="${id}" data-edit-id="${editDecision ? editDecision.id : ""}">
+            <input type="date" name="date" value="${editDecision ? editDecision.date || "" : todayISO()}" />
+            <input class="grow2" type="text" name="decision" placeholder="Decision" value="${editDecision ? escapeHtml(editDecision.decision) : ""}" required />
+            <input class="grow2" type="text" name="reason" placeholder="Reason" value="${editDecision ? escapeHtml(editDecision.reason || "") : ""}" />
+            <input type="text" name="decidedBy" placeholder="Decided by" value="${editDecision ? escapeHtml(editDecision.decidedBy || "") : ""}" />
+            <input type="text" name="impact" placeholder="Impact / cost / time" value="${editDecision ? escapeHtml(editDecision.impact || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editDecision ? ICON.check : ICON.plus} ${editDecision ? "Save changes" : "Add decision"}</button>
+            ${editDecision ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="decisions">Cancel</button>` : ""}
           </form>
         </div>
       </div>
@@ -1366,21 +1395,22 @@
         <div class="card-head"><h2>${ICON.qa} Q&amp;A Log</h2><span class="g-count">${qa.length}</span></div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Date</th><th>Asked of</th><th>Question</th><th>Answer / outcome</th><th>Status</th><th>Follow-up</th><th></th></tr></thead>
-          <tbody>${qa.map(q => `<tr>
+          <tbody>${qa.map(q => `<tr class="${editQa && editQa.id === q.id ? "log-row-editing" : ""}">
             <td>${fmtShort(q.date)}</td><td>${escapeHtml(q.askedOf || "—")}</td><td>${escapeHtml(q.question)}</td>
             <td>${escapeHtml(q.answer || "—")}</td><td>${logStatusChip(q.status)}</td><td>${escapeHtml(q.followUp || "—")}</td>
-            <td><button class="icon-x" data-delete-qa="${q.id}">${ICON.x}</button></td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-qa="${q.id}">${ICON.edit}</button><button class="icon-x" data-delete-qa="${q.id}">${ICON.x}</button></div></td>
           </tr>`).join("") || `<tr><td colspan="7">${emptyState("No questions logged yet.")}</td></tr>`}</tbody>
         </table></div>
         <div class="card-body pad">
-          <form class="inline-add-form" data-add-qa="${id}">
-            <input type="date" name="date" value="${todayISO()}" />
-            <input type="text" name="askedOf" placeholder="Asked of" />
-            <input class="grow2" type="text" name="question" placeholder="Question" required />
-            <input class="grow2" type="text" name="answer" placeholder="Answer / outcome" />
-            <select name="status"><option selected>Open</option><option>Answered</option></select>
-            <input type="text" name="followUp" placeholder="Follow-up needed" />
-            <button class="btn btn-sm" type="submit">${ICON.plus} Add Q&amp;A</button>
+          <form class="inline-add-form" data-add-qa="${id}" data-edit-id="${editQa ? editQa.id : ""}">
+            <input type="date" name="date" value="${editQa ? editQa.date || "" : todayISO()}" />
+            <input type="text" name="askedOf" placeholder="Asked of" value="${editQa ? escapeHtml(editQa.askedOf || "") : ""}" />
+            <input class="grow2" type="text" name="question" placeholder="Question" value="${editQa ? escapeHtml(editQa.question) : ""}" required />
+            <input class="grow2" type="text" name="answer" placeholder="Answer / outcome" value="${editQa ? escapeHtml(editQa.answer || "") : ""}" />
+            <select name="status">${selOpts(["Open", "Answered"], editQa ? editQa.status : "Open")}</select>
+            <input type="text" name="followUp" placeholder="Follow-up needed" value="${editQa ? escapeHtml(editQa.followUp || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editQa ? ICON.check : ICON.plus} ${editQa ? "Save changes" : "Add Q&amp;A"}</button>
+            ${editQa ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="qaItems">Cancel</button>` : ""}
           </form>
         </div>
       </div>
@@ -1389,21 +1419,22 @@
         <div class="card-head"><h2>${ICON.doc} Documents Register</h2><span class="g-count">${docs.length}</span></div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Date</th><th>Document</th><th>Type</th><th>Source</th><th>Location / link</th><th>Notes</th><th></th></tr></thead>
-          <tbody>${docs.map(d => `<tr>
+          <tbody>${docs.map(d => `<tr class="${editDoc && editDoc.id === d.id ? "log-row-editing" : ""}">
             <td>${fmtShort(d.dateReceived)}</td><td>${escapeHtml(d.name)}</td><td>${escapeHtml(d.type || "—")}</td>
             <td>${escapeHtml(d.source || "—")}</td><td>${escapeHtml(d.location || "—")}</td><td>${escapeHtml(d.notes || "—")}</td>
-            <td><button class="icon-x" data-delete-document="${d.id}">${ICON.x}</button></td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-document="${d.id}">${ICON.edit}</button><button class="icon-x" data-delete-document="${d.id}">${ICON.x}</button></div></td>
           </tr>`).join("") || `<tr><td colspan="7">${emptyState("No documents logged yet.")}</td></tr>`}</tbody>
         </table></div>
         <div class="card-body pad">
-          <form class="inline-add-form" data-add-document="${id}">
-            <input type="date" name="dateReceived" value="${todayISO()}" />
-            <input class="grow2" type="text" name="name" placeholder="Document name" required />
-            <select name="type"><option>Report</option><option>Quote</option><option>Notice</option><option>Drawing</option><option>Correspondence</option><option selected>Other</option></select>
-            <input type="text" name="source" placeholder="Source" />
-            <input class="grow2" type="text" name="location" placeholder="Location / link" />
-            <input type="text" name="notes" placeholder="Notes" />
-            <button class="btn btn-sm" type="submit">${ICON.plus} Add document</button>
+          <form class="inline-add-form" data-add-document="${id}" data-edit-id="${editDoc ? editDoc.id : ""}">
+            <input type="date" name="dateReceived" value="${editDoc ? editDoc.dateReceived || "" : todayISO()}" />
+            <input class="grow2" type="text" name="name" placeholder="Document name" value="${editDoc ? escapeHtml(editDoc.name) : ""}" required />
+            <select name="type">${selOpts(["Report", "Quote", "Notice", "Drawing", "Correspondence", "Other"], editDoc ? editDoc.type : "Other")}</select>
+            <input type="text" name="source" placeholder="Source" value="${editDoc ? escapeHtml(editDoc.source || "") : ""}" />
+            <input class="grow2" type="text" name="location" placeholder="Location / link" value="${editDoc ? escapeHtml(editDoc.location || "") : ""}" />
+            <input type="text" name="notes" placeholder="Notes" value="${editDoc ? escapeHtml(editDoc.notes || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editDoc ? ICON.check : ICON.plus} ${editDoc ? "Save changes" : "Add document"}</button>
+            ${editDoc ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="documents">Cancel</button>` : ""}
           </form>
         </div>
       </div>
@@ -1412,21 +1443,22 @@
         <div class="card-head"><h2>${ICON.contact} Key Contacts</h2><span class="g-count">${contacts.length}</span></div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Name</th><th>Organisation / Role</th><th>Area</th><th>Phone</th><th>Email</th><th>Notes</th><th></th></tr></thead>
-          <tbody>${contacts.map(c => `<tr>
+          <tbody>${contacts.map(c => `<tr class="${editContact && editContact.id === c.id ? "log-row-editing" : ""}">
             <td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.orgRole || "—")}</td><td>${escapeHtml(c.area || "—")}</td>
             <td>${escapeHtml(c.phone || "—")}</td><td>${escapeHtml(c.email || "—")}</td><td>${escapeHtml(c.notes || "—")}</td>
-            <td><button class="icon-x" data-delete-contact="${c.id}">${ICON.x}</button></td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-contact="${c.id}">${ICON.edit}</button><button class="icon-x" data-delete-contact="${c.id}">${ICON.x}</button></div></td>
           </tr>`).join("") || `<tr><td colspan="7">${emptyState("No contacts logged yet.")}</td></tr>`}</tbody>
         </table></div>
         <div class="card-body pad">
-          <form class="inline-add-form" data-add-contact="${id}">
-            <input class="grow2" type="text" name="name" placeholder="Name" required />
-            <input class="grow2" type="text" name="orgRole" placeholder="Organisation / Role" />
-            <select name="area"><option>Council</option><option>Landlord</option><option>Engineer</option><option>Acoustic</option><option>Contractor</option><option selected>Other</option></select>
-            <input type="text" name="phone" placeholder="Phone" />
-            <input type="text" name="email" placeholder="Email" />
-            <input type="text" name="notes" placeholder="Notes" />
-            <button class="btn btn-sm" type="submit">${ICON.plus} Add contact</button>
+          <form class="inline-add-form" data-add-contact="${id}" data-edit-id="${editContact ? editContact.id : ""}">
+            <input class="grow2" type="text" name="name" placeholder="Name" value="${editContact ? escapeHtml(editContact.name) : ""}" required />
+            <input class="grow2" type="text" name="orgRole" placeholder="Organisation / Role" value="${editContact ? escapeHtml(editContact.orgRole || "") : ""}" />
+            <select name="area">${selOpts(["Council", "Landlord", "Engineer", "Acoustic", "Contractor", "Other"], editContact ? editContact.area : "Other")}</select>
+            <input type="text" name="phone" placeholder="Phone" value="${editContact ? escapeHtml(editContact.phone || "") : ""}" />
+            <input type="text" name="email" placeholder="Email" value="${editContact ? escapeHtml(editContact.email || "") : ""}" />
+            <input type="text" name="notes" placeholder="Notes" value="${editContact ? escapeHtml(editContact.notes || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editContact ? ICON.check : ICON.plus} ${editContact ? "Save changes" : "Add contact"}</button>
+            ${editContact ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="contacts">Cancel</button>` : ""}
           </form>
         </div>
       </div>
@@ -1435,20 +1467,21 @@
         <div class="card-head"><h2>${ICON.retro} Lessons Learned</h2><span class="g-count">${lessons.length}</span></div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Date</th><th>Theme</th><th>What happened</th><th>Do differently next time</th><th>Raised by</th><th></th></tr></thead>
-          <tbody>${[...lessons].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(l => `<tr>
+          <tbody>${[...lessons].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(l => `<tr class="${editLesson && editLesson.id === l.id ? "log-row-editing" : ""}">
             <td>${fmtShort(l.date)}</td><td>${escapeHtml(l.theme || "—")}</td><td>${escapeHtml(l.whatHappened)}</td>
             <td>${escapeHtml(l.doDifferently || "—")}</td><td>${escapeHtml(l.raisedBy || "—")}</td>
-            <td><button class="icon-x" data-delete-lesson="${l.id}">${ICON.x}</button></td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-lesson="${l.id}">${ICON.edit}</button><button class="icon-x" data-delete-lesson="${l.id}">${ICON.x}</button></div></td>
           </tr>`).join("") || `<tr><td colspan="6">${emptyState("No lessons logged yet — capture these at close-out while they're fresh.")}</td></tr>`}</tbody>
         </table></div>
         <div class="card-body pad">
-          <form class="inline-add-form" data-add-lesson="${id}">
-            <input type="date" name="date" value="${todayISO()}" />
-            <select name="theme"><option selected>Scope</option><option>Procurement</option><option>Contractor performance</option><option>Cost</option><option>Programme</option><option>Compliance / SHE</option><option>Stakeholder</option><option>Other</option></select>
-            <input class="grow2" type="text" name="whatHappened" placeholder="What happened" required />
-            <input class="grow2" type="text" name="doDifferently" placeholder="Do differently next time" />
-            <input type="text" name="raisedBy" placeholder="Raised by" />
-            <button class="btn btn-sm" type="submit">${ICON.plus} Add lesson</button>
+          <form class="inline-add-form" data-add-lesson="${id}" data-edit-id="${editLesson ? editLesson.id : ""}">
+            <input type="date" name="date" value="${editLesson ? editLesson.date || "" : todayISO()}" />
+            <select name="theme">${selOpts(["Scope", "Procurement", "Contractor performance", "Cost", "Programme", "Compliance / SHE", "Stakeholder", "Other"], editLesson ? editLesson.theme : "Scope")}</select>
+            <input class="grow2" type="text" name="whatHappened" placeholder="What happened" value="${editLesson ? escapeHtml(editLesson.whatHappened) : ""}" required />
+            <input class="grow2" type="text" name="doDifferently" placeholder="Do differently next time" value="${editLesson ? escapeHtml(editLesson.doDifferently || "") : ""}" />
+            <input type="text" name="raisedBy" placeholder="Raised by" value="${editLesson ? escapeHtml(editLesson.raisedBy || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editLesson ? ICON.check : ICON.plus} ${editLesson ? "Save changes" : "Add lesson"}</button>
+            ${editLesson ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="lessons">Cancel</button>` : ""}
           </form>
         </div>
       </div>
@@ -1456,15 +1489,15 @@
   }
 
   const PROJECT_LOG_ENTITIES = [
-    { key: "risks", addAttr: "data-add-risk", delAttr: "data-delete-risk", fields: ["risk", "likelihood", "impact", "mitigation", "owner", "status"] },
-    { key: "decisions", addAttr: "data-add-decision", delAttr: "data-delete-decision", fields: ["date", "decision", "reason", "decidedBy", "impact"] },
-    { key: "qaItems", addAttr: "data-add-qa", delAttr: "data-delete-qa", fields: ["date", "askedOf", "question", "answer", "status", "followUp"] },
-    { key: "documents", addAttr: "data-add-document", delAttr: "data-delete-document", fields: ["dateReceived", "name", "type", "source", "location", "notes"] },
-    { key: "contacts", addAttr: "data-add-contact", delAttr: "data-delete-contact", fields: ["name", "orgRole", "area", "phone", "email", "notes"] },
-    { key: "meetingNotes", addAttr: "data-add-meetingnote", delAttr: "data-delete-meetingnote", fields: ["date", "title", "source", "body"] },
-    { key: "tenders", addAttr: "data-add-tender", delAttr: "data-delete-tender", fields: ["title", "route", "status", "issueDate", "returnDate", "estValue", "owner"] },
-    { key: "budgetCheckpoints", addAttr: "data-add-budgetcheckpoint", delAttr: "data-delete-budgetcheckpoint", fields: ["stage", "amount", "date", "notes"] },
-    { key: "lessons", addAttr: "data-add-lesson", delAttr: "data-delete-lesson", fields: ["date", "theme", "whatHappened", "doDifferently", "raisedBy"] },
+    { key: "risks", addAttr: "data-add-risk", delAttr: "data-delete-risk", editAttr: "data-edit-risk", fields: ["risk", "likelihood", "impact", "mitigation", "owner", "status"] },
+    { key: "decisions", addAttr: "data-add-decision", delAttr: "data-delete-decision", editAttr: "data-edit-decision", fields: ["date", "decision", "reason", "decidedBy", "impact"] },
+    { key: "qaItems", addAttr: "data-add-qa", delAttr: "data-delete-qa", editAttr: "data-edit-qa", fields: ["date", "askedOf", "question", "answer", "status", "followUp"] },
+    { key: "documents", addAttr: "data-add-document", delAttr: "data-delete-document", editAttr: "data-edit-document", fields: ["dateReceived", "name", "type", "source", "location", "notes"] },
+    { key: "contacts", addAttr: "data-add-contact", delAttr: "data-delete-contact", editAttr: "data-edit-contact", fields: ["name", "orgRole", "area", "phone", "email", "notes"] },
+    { key: "meetingNotes", addAttr: "data-add-meetingnote", delAttr: "data-delete-meetingnote", editAttr: "data-edit-meetingnote", fields: ["date", "title", "source", "body"] },
+    { key: "tenders", addAttr: "data-add-tender", delAttr: "data-delete-tender", editAttr: "data-edit-tender", fields: ["title", "route", "status", "issueDate", "returnDate", "estValue", "owner"] },
+    { key: "budgetCheckpoints", addAttr: "data-add-budgetcheckpoint", delAttr: "data-delete-budgetcheckpoint", editAttr: "data-edit-budgetcheckpoint", fields: ["stage", "amount", "date", "notes"] },
+    { key: "lessons", addAttr: "data-add-lesson", delAttr: "data-delete-lesson", editAttr: "data-edit-lesson", fields: ["date", "theme", "whatHappened", "doDifferently", "raisedBy"] },
   ];
 
   function bindProjectDetailEvents(root) {
@@ -1477,20 +1510,47 @@
         form.addEventListener("submit", (e) => {
           e.preventDefault();
           const projectId = form.getAttribute(cfg.addAttr);
+          const editId = form.getAttribute("data-edit-id");
           const fd = new FormData(form);
-          const record = { id: uid(), projectId };
-          cfg.fields.forEach(f => { record[f] = (fd.get(f) || "").toString().trim(); });
-          state[cfg.key].push(record);
-          save(); toast("Added"); renderPage();
+          if (editId) {
+            // Editing: mutate the existing record in place rather than replacing it,
+            // so its position in the list (and anything referencing its identity) is
+            // undisturbed — this is the same record, not a new one.
+            const existing = state[cfg.key].find(r => r.id === editId);
+            if (existing) {
+              cfg.fields.forEach(f => { existing[f] = (fd.get(f) || "").toString().trim(); });
+              editingLogEntry = null;
+              save(); toast("Saved"); renderPage();
+            }
+          } else {
+            const record = { id: uid(), projectId };
+            cfg.fields.forEach(f => { record[f] = (fd.get(f) || "").toString().trim(); });
+            state[cfg.key].push(record);
+            save(); toast("Added"); renderPage();
+          }
         });
       }
+      root.querySelectorAll(`[${cfg.editAttr}]`).forEach(btn => btn.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation(); // must not also toggle a <summary> open/closed
+        editingLogEntry = { key: cfg.key, id: btn.getAttribute(cfg.editAttr) };
+        renderPage();
+      }));
       root.querySelectorAll(`[${cfg.delAttr}]`).forEach(btn => btn.addEventListener("click", (e) => {
         e.preventDefault(); e.stopPropagation(); // a delete button inside a <summary> must not also toggle it open/closed
         const recId = btn.getAttribute(cfg.delAttr);
         state[cfg.key] = state[cfg.key].filter(r => r.id !== recId);
+        // Deleting the row currently being edited must drop the stale reference —
+        // otherwise the form keeps rendering values from a record that no longer exists.
+        if (editingLogEntry && editingLogEntry.key === cfg.key && editingLogEntry.id === recId) editingLogEntry = null;
         save(); renderPage();
       }));
     });
+
+    root.querySelectorAll("[data-cancel-edit]").forEach(btn => btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      editingLogEntry = null;
+      renderPage();
+    }));
   }
 
   /* ============================== BUDGET ============================== */

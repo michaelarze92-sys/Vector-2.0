@@ -44,12 +44,46 @@ Key Contacts, Meeting Notes, Tender & Procurement Register, Budget Checkpoints,
 Lessons Learned)
 
 These all follow one generic pattern, defined once as `PROJECT_LOG_ENTITIES` (in the
-PROJECTS LIST & DETAIL section) — an array of `{ key, addAttr, delAttr, fields }`.
-**Adding another log type means adding one entry to that array plus its render
-markup — it does not mean writing new add/delete/import-merge logic.** The generic
-handlers in `bindProjectDetailEvents()` and `importBackup()` already iterate that
-config. If you ever find yourself hand-writing a delete handler for a new record type,
-you've missed the existing pattern.
+PROJECTS LIST & DETAIL section) — an array of `{ key, addAttr, delAttr, editAttr,
+fields }`. **Adding another log type means adding one entry to that array plus its
+render markup — it does not mean writing new add/delete/edit/import-merge logic.** The
+generic handlers in `bindProjectDetailEvents()` and `importBackup()` already iterate
+that config. If you ever find yourself hand-writing a delete or edit handler for a new
+record type, you've missed the existing pattern.
+
+### Editing an existing row
+
+All nine were add/delete-only until a real gap: no way to fix a typo without deleting
+and re-entering the whole row. Fixed generically, not per-log:
+
+- `editingLogEntry` (top-level, near `viewingProjectId`) holds `{ key, id } | null` —
+  which single row, across the *entire app*, is mid-edit right now. Not part of
+  `state`; it's UI-only and must never survive navigating away, so `go()` and
+  `viewProject()` both clear it. Forgetting that on a future nav function is exactly
+  how a stale edit for project A's risk would silently start editing project B's data.
+- **Each log's existing add-form doubles as its edit form** — there is no separate
+  edit UI. `editingRecord(key)` looks up the record; if found, the form's inputs render
+  pre-filled with `value="..."`/`selected` instead of blank/defaults, the submit
+  button reads "Save changes" instead of "Add X", and a Cancel button appears
+  (`data-cancel-edit="<key>"`). The form carries a `data-edit-id` attribute — the
+  record's id in edit mode, empty in add mode — so the one generic submit handler in
+  `bindProjectDetailEvents()` knows whether to push a new record or mutate the
+  existing one by id. Same handler either way, no branch per log type.
+- `selOpts(options, current)` replaces every hand-written `<option selected>` list —
+  needed because "which option is selected" now depends on whether a record is being
+  edited, not just on which log this is.
+- Deleting the row currently being edited clears `editingLogEntry` in the same
+  handler, before render — otherwise the form keeps showing values from a record that
+  no longer exists in `state`.
+- Meeting Notes is the one log with a genuinely different shape (accordion, not a
+  table) — it reuses the exact same `editingLogEntry`/`data-edit-id` mechanism, just
+  wired into its own markup (`open` on the `<details>` being edited) rather than a
+  generic row renderer, since a `<details>` accordion and a `<table>` row don't share
+  enough markup to be worth unifying.
+
+Regression coverage: `tests/test_log_editing.js` drives all nine end to end (edit,
+save, verify, reload, verify persisted) plus cancel, delete-while-editing, and
+cross-project isolation.
 
 ## Agile/Kanban borrowings — and what was deliberately not borrowed
 
