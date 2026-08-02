@@ -125,7 +125,7 @@ Grep for `/* ----------------` to jump between sections.
 | email parsing | `parseEmailText` + `guessDateFromText`/`guessSiteFromText`/`guessCategoryFromText`. Feeds the paste drawer. See below. |
 | form / detail drawer | Issue create/edit; detail view is `openDetail` → `issueDetailMarkup` + `wireIssueDetail` (attachments, notes, email log, links, Promote to project). |
 | promote issue to Project Board | `promoteIssueToProject` + the `PM_*` maps. See the contract section below. |
-| vector assistant | Pattern-matching command parser. **Not an LLM** — it's regex/keyword matching over local data. Don't describe it to Michael as AI. |
+| vector assistant | Pattern-matching parser + local analytics. **Not an LLM** — regex/keyword matching over local data. Don't describe it to Michael as AI. See the Vector section below. |
 
 ## The markup / wiring split
 
@@ -461,3 +461,49 @@ Three things that will bite:
 - **`notifiedOn` lives in the digest, not localStorage.** Page and worker both notify and
   can't see each other's state any other way, so a page-side stamp lets each fire once and
   you get two a day.
+
+
+## Vector — search and analytics
+
+**Still not an LLM.** It cannot reason, and the honesty about that is a feature:
+`vAdviceAnswer` catches "should I…", "are we…", "do I need…" and says plainly that it
+can't make the call, then offers the numbers behind it. Regulatory phrasing points at
+WorkNest or legal counsel. Do not soften that into an opinion.
+
+### Search
+
+The first version searched only `issues`, matched exact substrings, weighted every field
+equally, and **refused to answer whenever the top two results tied** — so it replied "add
+the site name to narrow it down" to most questions. That refusal is the behaviour
+`test_vector.js` regression-tests against; if it comes back, the search has regressed.
+
+| Piece | Does |
+|---|---|
+| `vectorRecords()` | indexes issues (**including notes and logged emails**), contacts, compliance entries, site details and imported projects |
+| `vFieldScore()` | exact 1.0, stem 0.9, one-edit typo 0.6 |
+| `vNear()` | edit distance ≤ 1, **only for words of 5+ characters** — at 3–4 letters one edit collides with unrelated words |
+| weighting | `strong` ×3 (titles, names), `medium` ×2 (site, category, assignee), `weak` ×1 (descriptions, note bodies) |
+
+Two traps already hit:
+
+- **Index field labels, not just values.** The site record indexes `"landlord " + d.landlord`,
+  so searching "landlord" works. Indexing the value alone means you must already know the
+  answer to search for it.
+- **`a + b || c` binds as `(a + b) || c`.** The site fallback string could never fire.
+  Branch on the parts.
+
+### Analytics
+
+`vectorAnalytics()` tries each in order and takes the first non-null: brief → spend →
+contractor → compliance → trend → site rank → advice. **Order matters** — analysis runs
+before search, so "what have we spent at Mayfair" totals money rather than returning
+issues containing the word "spent".
+
+Match **stems, not inflections**: `perform\w*` catches performing/performance/performs.
+"performing" not matching "performance" is exactly how the contractor answer silently fell
+through to search.
+
+Each answer states its own limits — contractor stats say they measure what's logged here
+rather than the contractor's own KPI data; the trend says this month isn't finished;
+compliance flags register entries with no due date as an audit finding in their own right.
+Keep that. An analytic that overstates its confidence is worse than none.

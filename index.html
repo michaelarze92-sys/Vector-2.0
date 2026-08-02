@@ -5305,6 +5305,395 @@
     return out;
   }
 
+  /* ---------------- Vector: search ----------------
+
+     The first version searched only `issues`, matched exact substrings, weighted every
+     field equally, and refused to answer whenever the top two results tied — which is
+     most of the time. The effect was an assistant that answered "add the site name to
+     narrow it down" to almost everything. Four changes: search all the data, tolerate
+     plurals and typos, rank title matches above buried description matches, and always
+     answer with a ranked list rather than giving up. */
+
+  var V_STOP = "the a an of at in on for to is are was were be been and or my me i we our you with about what whats which who how many much".split(" ");
+
+  function vTokens(s){
+    return String(s || "").toLowerCase().replace(/[^a-z0-9£\s]/g, " ").split(/\s+/)
+      .filter(function(w){ return w.length > 1 && V_STOP.indexOf(w) === -1; });
+  }
+
+  function vStem(w){ return w.replace(/ies$/, "y").replace(/(ing|ed|es|s)$/, ""); }
+
+  /* One edit apart — a single insertion, deletion or substitution. Enough for "chiler"
+     or "chilller"; only applied to words of 5+ characters, because at three or four
+     letters an edit distance of one collides with completely unrelated words. */
+  function vNear(a, b){
+    if(a === b) return true;
+    var la = a.length, lb = b.length;
+    if(Math.abs(la - lb) > 1 || !lb) return false;
+    var i = 0, j = 0, diff = 0;
+    while(i < la && j < lb){
+      if(a.charAt(i) === b.charAt(j)){ i++; j++; continue; }
+      if(++diff > 1) return false;
+      if(la > lb) i++; else if(lb > la) j++; else { i++; j++; }
+    }
+    return diff + (la - i) + (lb - j) <= 1;
+  }
+
+  function vFieldScore(qWords, text){
+    if(!text) return 0;
+    var hay = String(text).toLowerCase();
+    var hayWords = null, score = 0;
+    qWords.forEach(function(w){
+      if(hay.indexOf(w) !== -1){ score += 1; return; }              // exact
+      var st = vStem(w);
+      if(st.length >= 3 && hay.indexOf(st) !== -1){ score += 0.9; return; }   // plural/tense
+      if(w.length >= 5){                                            // typo
+        if(hayWords === null) hayWords = hay.split(/[^a-z0-9]+/);
+        for(var k = 0; k < hayWords.length; k++){
+          if(vNear(w, hayWords[k])){ score += 0.6; return; }
+        }
+      }
+    });
+    return score;
+  }
+
+  /* Everything searchable, not just issues — notes and logged emails are where the
+     answer to "what did Dalkia say about the chiller" actually lives. */
+  function vectorRecords(){
+    var recs = [];
+    issues.forEach(function(i){
+      var noteText = (i.notes || []).map(function(n){
+        return [n.text, n.subject, n.from, n.to].filter(Boolean).join(" ");
+      }).join(" ");
+      recs.push({
+        kind: "issue", issue: i, site: i.site,
+        strong: [i.title, (i.tags || []).join(" ")].join(" "),
+        medium: [i.site, i.category, i.assigned, i.status].filter(Boolean).join(" "),
+        weak: [i.description, noteText].filter(Boolean).join(" ")
+      });
+    });
+    PROPERTY_ORDER.forEach(function(s){
+      var d = getSiteDetail(s);
+      (d.contacts || []).forEach(function(c){
+        recs.push({ kind: "contact", site: s, contact: c,
+          strong: [c.name, c.role].filter(Boolean).join(" "),
+          medium: s, weak: [c.phone, c.email].filter(Boolean).join(" ") });
+      });
+      (d.compliance || []).forEach(function(c){
+        recs.push({ kind: "compliance", site: s, item: c,
+          strong: c.type || "", medium: s, weak: c.due || "" });
+      });
+      /* The field LABELS are indexed alongside their values, so "landlord" finds the
+         landlord. Without this, only the value is searchable — you have to already know
+         the answer to search for it, which is not much of a search. */
+      recs.push({ kind: "site", site: s, detail: d,
+        strong: s,
+        medium: [d.landlord && ("landlord " + d.landlord),
+                 d.casinoDirector && ("casino director " + d.casinoDirector),
+                 d.tenants && ("tenants sublet " + d.tenants),
+                 d.sqft && ("size square footage floor area " + d.sqft)].filter(Boolean).join(" "),
+        weak: d.notes || "" });
+    });
+    var pm = getPmBoard();
+    if(pm) (pm.projects || []).forEach(function(p){
+      recs.push({ kind: "project", site: p.site || "", project: p,
+        strong: p.name || "",
+        medium: [p.owner, p.status, p.category].filter(Boolean).join(" "), weak: "" });
+    });
+    return recs;
+  }
+
+  function vectorSearch(query){
+    var qWords = vTokens(query);
+    if(!qWords.length) return [];
+    return vectorRecords().map(function(r){
+      return { rec: r, score: vFieldScore(qWords, r.strong) * 3
+                         + vFieldScore(qWords, r.medium) * 2
+                         + vFieldScore(qWords, r.weak) };
+    }).filter(function(m){ return m.score > 0; })
+      .sort(function(a, b){ return b.score - a.score; });
+  }
+
+  function vDescribe(rec){
+    if(rec.kind === "issue"){
+      var i = rec.issue;
+      return i.title + " — " + i.site + ", " + i.category + ". " + i.status + ", " +
+        SEV_LABEL[severityBand(i)] + " priority, " + daysOpen(i) + " day(s) open" +
+        (i.targetDate ? (", target " + fmtDate(i.targetDate)) : ", no target date") +
+        (i.assigned ? (", with " + i.assigned) : "") + ".";
+    }
+    if(rec.kind === "contact"){
+      var c = rec.contact, bits = [];
+      if(c.role) bits.push(c.role);
+      if(c.phone) bits.push("phone " + c.phone);
+      if(c.email) bits.push("email " + c.email);
+      return c.name + " (" + rec.site + ")" + (bits.length ? " — " + bits.join(", ") : " — nothing else on file") + ".";
+    }
+    if(rec.kind === "compliance"){
+      var it = rec.item, du = it.due ? daysUntil(it.due) : null;
+      return it.type + " at " + rec.site + (it.due
+        ? (" — due " + fmtDate(it.due) + " (" + (du < 0 ? Math.abs(du) + " days overdue" : du + " days away") + ").")
+        : " — no due date recorded.");
+    }
+    if(rec.kind === "project"){
+      var p = rec.project;
+      return p.name + " — " + (p.status || "status unknown") +
+        (p.budgetAllocated ? (", budget " + fmtMoney(p.budgetAllocated)) : "") +
+        (p.spend ? (", spent " + fmtMoney(p.spend)) : "") + ".";
+    }
+    var d = rec.detail;
+    // `a + b || c` binds as `(a + b) || c`, so the left side is never falsy and the
+    // fallback could never fire. Branch on the parts instead.
+    var bits = [d.sqft && ("size " + d.sqft), d.landlord && ("landlord " + d.landlord),
+                d.casinoDirector && ("casino director " + d.casinoDirector),
+                d.tenants && ("tenants " + d.tenants)].filter(Boolean);
+    return bits.length ? (rec.site + " — " + bits.join(", ") + ".")
+                       : (rec.site + " — no details on file yet.");
+  }
+
+  function vLabel(rec){
+    if(rec.kind === "issue") return rec.issue.title + " (" + rec.issue.site + ")";
+    if(rec.kind === "contact") return rec.contact.name + " (" + rec.site + ")";
+    if(rec.kind === "compliance") return rec.item.type + " (" + rec.site + ")";
+    if(rec.kind === "project") return rec.project.name + " — project";
+    return rec.site + " — site details";
+  }
+
+  /* ---------------- Vector: analytics ----------------
+
+     Vector can't reason, but it can count — and most of the questions worth asking about
+     an estate are arithmetic over data already here, not open-ended judgement. Each of
+     these returns a finished sentence, or null to fall through to search. */
+
+  function vMoneyOf(i){ return Number(i.actualCost) || Number(i.costEstimate) || 0; }
+
+  function vPeriod(lower){
+    var now = parseISO(todayISO()), y = now.getFullYear(), m = now.getMonth();
+    if(/last month/.test(lower)){
+      return { from: toISO(new Date(y, m - 1, 1)), to: toISO(new Date(y, m, 0)), label: "last month" };
+    }
+    if(/this month/.test(lower)){
+      return { from: toISO(new Date(y, m, 1)), to: todayISO(), label: "this month" };
+    }
+    if(/this year|ytd|year to date/.test(lower)){
+      return { from: toISO(new Date(y, 0, 1)), to: todayISO(), label: "this year to date" };
+    }
+    var n = lower.match(/last (\d{1,3})\s*days?/);
+    if(n) return { from: addDays(todayISO(), -parseInt(n[1], 10)), to: todayISO(), label: "the last " + n[1] + " days" };
+    return null;
+  }
+
+  function vScoped(site, period){
+    return issues.filter(function(i){
+      if(site && i.site !== site) return false;
+      if(period){
+        var d = i.dateReported || "";
+        if(!d || d < period.from || d > period.to) return false;
+      }
+      return true;
+    });
+  }
+
+  function vTopN(map, n, fmt){
+    return Object.keys(map).sort(function(a, b){ return map[b] - map[a]; })
+      .slice(0, n).map(function(k){ return k + " " + fmt(map[k]); }).join(", ");
+  }
+
+  function vSpendAnswer(lower, site){
+    if(!/\b(spend|spent|spending|cost|costs|costing|budget|invoice|value|£)\b/.test(lower)) return null;
+    if(/cost impact/.test(lower)) return null;   // that's a severity field, not money
+    var period = vPeriod(lower);
+    var scope = vScoped(site, period);
+    var where = (site ? " at " + site : " across the portfolio") + (period ? " (" + period.label + ")" : "");
+    if(!scope.length) return "No issues recorded" + where + ", so there's nothing to total.";
+
+    var actual = 0, est = 0, withActual = 0;
+    var byCat = {}, bySite = {};
+    scope.forEach(function(i){
+      var a = Number(i.actualCost) || 0, e = Number(i.costEstimate) || 0;
+      actual += a; est += e; if(a) withActual++;
+      var v = vMoneyOf(i);
+      if(v){ byCat[i.category] = (byCat[i.category] || 0) + v; bySite[i.site] = (bySite[i.site] || 0) + v; }
+    });
+    var biggest = scope.slice().sort(function(a, b){ return vMoneyOf(b) - vMoneyOf(a); })[0];
+
+    var out = "Reactive spend" + where + ": " + fmtMoney(actual) + " actual across " +
+      withActual + " of " + scope.length + " issue(s), " + fmtMoney(est) + " estimated.";
+    if(biggest && vMoneyOf(biggest)) out += " Largest single item: " + biggest.title + " (" + biggest.site + ") at " + fmtMoney(vMoneyOf(biggest)) + ".";
+    var catLine = vTopN(byCat, 3, fmtMoney);
+    if(catLine) out += " By category — " + catLine + ".";
+    if(!site){ var siteLine = vTopN(bySite, 3, fmtMoney); if(siteLine) out += " By site — " + siteLine + "."; }
+
+    var pm = getPmBoard();
+    if(pm && (pm.projects || []).length){
+      var pr = pm.projects.filter(function(p){ return !site || p.site === site; });
+      var alloc = pr.reduce(function(s, p){ return s + (Number(p.budgetAllocated) || 0); }, 0);
+      var spent = pr.reduce(function(s, p){ return s + (Number(p.spend) || 0); }, 0);
+      if(alloc || spent) out += " Capital projects (from the Project Board snapshot): " +
+        fmtMoney(spent) + " spent of " + fmtMoney(alloc) + " allocated.";
+    }
+    if(!actual && !est) out += " Nothing has a cost recorded yet — fill in Cost estimate or Actual cost and this becomes useful.";
+    return out;
+  }
+
+  function vContractorAnswer(lower, site){
+    // "performing" is not "performance" — match the stem, not one inflection
+    if(!/\b(contractor|contractors|supplier|suppliers|perform\w*|slow|slowest|fastest|turnaround|responsive|reliable|doing)\b/.test(lower)) return null;
+    var scope = vScoped(site, vPeriod(lower)).filter(function(i){ return (i.assigned || "").trim(); });
+    if(!scope.length) return "No issues have a contractor assigned" + (site ? " at " + site : "") + " yet, so there's nothing to compare.";
+
+    var by = {};
+    scope.forEach(function(i){
+      var k = i.assigned.trim();
+      by[k] = by[k] || { open: 0, overdue: 0, closed: 0, days: [], oldest: null };
+      var r = by[k];
+      if(DONE_STATUSES.indexOf(i.status) !== -1){
+        r.closed++;
+        if(i.dateReported && i.resolvedDate) r.days.push(-daysUntil(i.dateReported) + daysUntil(i.resolvedDate));
+      } else {
+        r.open++;
+        if(isOverdue(i)) r.overdue++;
+        if(!r.oldest || daysOpen(i) > daysOpen(r.oldest)) r.oldest = i;
+      }
+    });
+    var lines = Object.keys(by).map(function(k){
+      var r = by[k];
+      var avg = r.days.length ? Math.round(r.days.reduce(function(a, b){ return a + b; }, 0) / r.days.length) : null;
+      return { name: k, r: r, avg: avg,
+        text: k + ": " + r.open + " open" + (r.overdue ? " (" + r.overdue + " overdue)" : "") +
+              ", " + r.closed + " closed" +
+              (avg !== null ? ", averaging " + avg + " days to close" : ", none closed yet to measure") +
+              (r.oldest ? ". Oldest open: \"" + r.oldest.title + "\" at " + daysOpen(r.oldest) + " days" : "") + "." };
+    }).sort(function(a, b){ return (b.r.overdue - a.r.overdue) || ((b.avg || 0) - (a.avg || 0)); });
+    return "Contractor performance" + (site ? " at " + site : "") + " — " + lines.map(function(l){ return l.text; }).join(" ") +
+      " Ranked by overdue count, then average close time. Note this measures what's logged here, not their own KPI data.";
+  }
+
+  function vSiteRankAnswer(lower){
+    if(!/\b(worst|best|which site|which venue|most issues|hotspot|ranking|rank|compare sites|problem site)\b/.test(lower)) return null;
+    var rows = PROPERTY_ORDER.map(function(s){
+      var all = issues.filter(function(i){ return i.site === s; });
+      var open = all.filter(function(i){ return DONE_STATUSES.indexOf(i.status) === -1; });
+      return { site: s, open: open.length,
+        crit: open.filter(function(i){ return severityBand(i) === "red"; }).length,
+        overdue: open.filter(isOverdue).length,
+        spend: all.reduce(function(t, i){ return t + vMoneyOf(i); }, 0) };
+    }).filter(function(r){ return r.open || r.spend; });
+    if(!rows.length) return "Nothing logged against any site yet, so there's nothing to rank.";
+    // critical first, then overdue, then sheer volume — that's the order they'd bite
+    rows.sort(function(a, b){ return (b.crit - a.crit) || (b.overdue - a.overdue) || (b.open - a.open); });
+    var best = rows[rows.length - 1];
+    return "By exposure: " + rows.map(function(r){
+      return r.site + " (" + r.open + " open, " + r.crit + " critical, " + r.overdue + " overdue" +
+             (r.spend ? ", " + fmtMoney(r.spend) : "") + ")";
+    }).join("; ") + ". Worst on current data is " + rows[0].site + "; cleanest is " + best.site +
+      ". Ranked by critical, then overdue, then volume.";
+  }
+
+  function vComplianceAnswer(lower, site){
+    if(!/\b(compliance|statutory|expiring|expire|expires|expiry|certificate|certificates|fra|loler|eicr|water hygiene|legionella|lift inspection|gas safety|due for renewal)\b/.test(lower)) return null;
+    var horizon = 90;
+    var h = lower.match(/(\d{1,3})\s*days?/);
+    if(h) horizon = parseInt(h[1], 10);
+    else if(/6 months|six months/.test(lower)) horizon = 182;
+    else if(/year/.test(lower)) horizon = 365;
+
+    var rows = [];
+    (site ? [site] : PROPERTY_ORDER).forEach(function(s){
+      (getSiteDetail(s).compliance || []).forEach(function(c){
+        if(!c.due) { rows.push({ site: s, type: c.type, days: null }); return; }
+        var d = daysUntil(c.due);
+        if(d <= horizon) rows.push({ site: s, type: c.type, days: d, due: c.due });
+      });
+    });
+    if(!rows.length) return "Nothing in the compliance registers falls due within " + horizon + " days" +
+      (site ? " at " + site : " across the portfolio") + ". If that looks wrong, the registers may not be filled in — check a site's profile.";
+
+    var dated = rows.filter(function(r){ return r.days !== null; }).sort(function(a, b){ return a.days - b.days; });
+    var undated = rows.filter(function(r){ return r.days === null; });
+    var over = dated.filter(function(r){ return r.days < 0; });
+    var out = dated.length + " item(s) due within " + horizon + " days" + (site ? " at " + site : "") +
+      (over.length ? ", " + over.length + " already overdue" : "") + ": " +
+      dated.slice(0, 8).map(function(r){
+        return r.type + " at " + r.site + " (" + (r.days < 0 ? Math.abs(r.days) + "d overdue" : r.days + "d") + ")";
+      }).join("; ") + ".";
+    if(undated.length) out += " " + undated.length + " register entr(ies) have no due date at all, which is its own audit finding: " +
+      undated.slice(0, 5).map(function(r){ return r.type + " at " + r.site; }).join(", ") + ".";
+    return out;
+  }
+
+  function vTrendAnswer(lower, site){
+    if(!/\b(trend|trending|improving|getting better|getting worse|month on month|compared to last|vs last)\b/.test(lower)) return null;
+    var now = parseISO(todayISO()), y = now.getFullYear(), m = now.getMonth();
+    function window_(from, to){
+      return issues.filter(function(i){
+        if(site && i.site !== site) return false;
+        var d = i.dateReported || "";
+        return d >= from && d <= to;
+      });
+    }
+    function closedIn(from, to){
+      return issues.filter(function(i){
+        if(site && i.site !== site) return false;
+        var d = i.resolvedDate || "";
+        return d >= from && d <= to;
+      }).length;
+    }
+    var thisFrom = toISO(new Date(y, m, 1)), lastFrom = toISO(new Date(y, m - 1, 1)), lastTo = toISO(new Date(y, m, 0));
+    var a = window_(thisFrom, todayISO()).length, b = window_(lastFrom, lastTo).length;
+    var ca = closedIn(thisFrom, todayISO()), cb = closedIn(lastFrom, lastTo);
+    if(!a && !b && !ca && !cb) return "Not enough dated history yet to show a trend" + (site ? " at " + site : "") + " — this needs a couple of months of issues with dates on them.";
+    var dir = a === b ? "level with" : (a > b ? "up on" : "down on");
+    return "Raised" + (site ? " at " + site : "") + ": " + a + " this month vs " + b + " last month (" + dir + " last month). " +
+      "Closed: " + ca + " this month vs " + cb + " last. Net " + (ca - a >= 0 ? "reducing" : "growing") +
+      " the open backlog this month. Comparison is partial — this month isn't finished yet.";
+  }
+
+  function vBriefAnswer(lower){
+    if(!/\b(brief|briefing|summary|summarise|summarize|overview|priorit|what should i|where should i|focus|first thing|state of play|how are we doing)\b/.test(lower)) return null;
+    var b = collectToday();
+    var parts = [];
+    if(b.overdue.length) parts.push(b.overdue.length + " overdue");
+    if(b.due.length) parts.push(b.due.length + " due today");
+    if(b.chase.length) parts.push(b.chase.length + " needing a chase");
+    if(b.compliance.length) parts.push(b.compliance.length + " compliance item(s) inside 30 days");
+    if(!parts.length) return "Nothing overdue, due today, or needing a chase. The compliance registers are clear for the next 30 days too. Either you're on top of it, or there isn't much logged yet.";
+    var lead = (b.overdue[0] || b.due[0] || b.chase[0]);
+    return "Right now: " + parts.join(", ") + ". Start with \"" + lead.issue.title + "\" at " + lead.issue.site +
+      " (" + SEV_LABEL[severityBand(lead.issue)] + " priority" +
+      (lead.issue.assigned ? ", with " + lead.issue.assigned : ", unassigned") + "). Open Today for the full list.";
+  }
+
+  /* Where the honest line sits. Vector can produce the numbers behind a decision; it
+     cannot make the decision, and pretending otherwise on a repair-or-replace or a
+     regulatory question would be worse than useless. Say so, then give the numbers. */
+  function vAdviceAnswer(lower, site){
+    /* Deliberately broad on the question form: this runs last, after every analytic has
+       declined, so anything reaching here that is phrased as asking for a view should get
+       the honest answer rather than a search result that looks like one. */
+    if(!/\b(should i|should we|recommend|advise|advice|do you think|worth it|better to|repair or replace|are we|do i need|am i)\b/.test(lower)) return null;
+    var legal = /\b(legal|legally|liable|liability|regulation|regulations|hse|riddor|prosecut)\b/.test(lower);
+    var msg = "I can't make that call — I'm pattern matching over your own data, not reasoning, and I'm not a substitute for professional advice" +
+      (legal ? ". Anything turning on regulatory interpretation or liability needs WorkNest or legal counsel, not me" : "") + ". ";
+    var b = collectToday();
+    var scope = vScoped(site, null);
+    var spend = scope.reduce(function(t, i){ return t + vMoneyOf(i); }, 0);
+    return msg + "What I can give you is the evidence: " + scope.length + " issue(s)" +
+      (site ? " at " + site : " across the portfolio") + ", " + b.overdue.length + " overdue, " +
+      (spend ? fmtMoney(spend) + " of recorded cost" : "no cost recorded yet") +
+      ". Ask me for spend, contractor performance, compliance due, or a trend and I'll put the numbers behind your decision.";
+  }
+
+  function vectorAnalytics(text, lower, site){
+    return vBriefAnswer(lower)
+        || vSpendAnswer(lower, site)
+        || vContractorAnswer(lower, site)
+        || vComplianceAnswer(lower, site)
+        || vTrendAnswer(lower, site)
+        || vSiteRankAnswer(lower)
+        || vAdviceAnswer(lower, site);
+  }
+
   function vectorHandle(raw){
     var text = (raw||"").trim();
     if(!text) return;
@@ -5390,40 +5779,58 @@
     }
 
     if(/help|what can you do/.test(lower)){
-      vectorSay('Try: "log an issue at Mayfair about a leak", "how many critical issues", "how many overdue at Glasgow", "show me Park Lane", ask about a specific job e.g. "what\'s happening with the chiller", or ask for site details e.g. "what\'s the sq ft of Mayfair", "who\'s the casino director at Glasgow", "John\'s phone number", "landlord for Park Lane".', "vector");
+      vectorSay(
+        "I answer from your own data — no internet, no AI, nothing leaves this device.\n\n" +
+        "ANALYSIS — \"brief me\", \"what should I focus on\", \"what have we spent at Mayfair this year\", " +
+        "\"how is Dalkia performing\", \"what compliance is due in 90 days\", \"which site is worst\", " +
+        "\"what's the trend this month\".\n\n" +
+        "LOOKUP — search anything: issue titles, notes, logged emails, contacts, compliance registers, " +
+        "site details, imported projects. Typos and plurals are fine.\n\n" +
+        "ACTIONS — \"log an issue at Mayfair about a leak\", \"show me Park Lane\".\n\n" +
+        "What I can't do is judgement — repair-or-replace, or anything turning on regulations. " +
+        "I'll give you the numbers behind it and say so.", "vector");
       return;
     }
+
+    /* Analysis before search: "what have we spent at Mayfair" should total the money, not
+       return the issues with "spent" in them. */
+    var analytic = vectorAnalytics(text, lower, site);
+    if(analytic){ vectorSay(analytic, "vector"); return; }
 
     var q = lower
       .replace(/^(what's|whats|tell me about|details on|details of|status of|update on|what is happening with|what's happening with)\b/, "")
       .replace(/^(the|my)\s+/, "")
       .trim();
     if(q.length >= 3){
-      var qWords = q.split(/\s+/).filter(function(w){ return w.length > 2; });
-      var scored = issues.map(function(i){
-        var hay = [i.title, i.site, i.category, i.assigned, i.description, (i.tags||[]).join(" ")].join(" ").toLowerCase();
-        var score = qWords.reduce(function(s,w){ return s + (hay.indexOf(w) !== -1 ? 1 : 0); }, 0);
-        return {issue: i, score: score};
-      }).filter(function(m){ return m.score > 0; }).sort(function(a,b){ return b.score - a.score; });
+      var scored = vectorSearch(q);
+      if(site) {
+        // a named site narrows rather than filters away — keep site-less records too
+        var narrowed = scored.filter(function(m){ return !m.rec.site || m.rec.site === site; });
+        if(narrowed.length) scored = narrowed;
+      }
 
-      if(scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score)){
-        var m = scored[0].issue;
-        vectorSay(
-          m.title + " — " + m.site + ", " + m.category + ". Status: " + m.status + ", " +
-          SEV_LABEL[severityBand(m)] + " priority, " + daysOpen(m) + " day(s) open" +
-          (m.targetDate ? (", target " + fmtDate(m.targetDate)) : "") +
-          (m.assigned ? (", assigned to " + m.assigned) : "") + ".",
-          "vector"
-        );
-        return;
-      } else if(scored.length > 1){
-        var titles = scored.slice(0,5).map(function(m){ return m.issue.title + " (" + m.issue.site + ")"; }).join("; ");
-        vectorSay("Found " + scored.length + " issues matching that: " + titles + ". Try adding the site name to narrow it down.", "vector");
+      if(scored.length){
+        /* Always answer. The old version refused whenever the top two tied, which is most
+           of the time — leading the answer with the best match and listing the rest is
+           strictly more useful than telling someone to rephrase. */
+        var top = scored[0];
+        var rest = scored.slice(1, 6);
+        var msg = vDescribe(top.rec);
+        if(rest.length){
+          msg += "\n\nAlso matching: " + rest.map(function(m){ return vLabel(m.rec); }).join("; ") +
+                 (scored.length > 6 ? " (+" + (scored.length - 6) + " more)" : "") + ".";
+        }
+        vectorSay(msg, "vector");
         return;
       }
     }
 
-    vectorSay("I didn't catch a command I recognise. Say \"help\" to see what I can do.", "vector");
+    /* Say what would have worked, rather than "I didn't catch that". A dead end should
+       still teach you the shape of a question that lands. */
+    vectorSay("Nothing in your data matches that, and it's not a command I recognise.\n\n" +
+      "I can total spend, rate contractors, list compliance due, rank sites, show a trend, " +
+      "brief you on today, log an issue, or search everything you've written — including notes and logged emails. " +
+      "Say \"help\" for examples.", "vector");
   }
 
   document.getElementById("vectorBtn").addEventListener("click", function(){
