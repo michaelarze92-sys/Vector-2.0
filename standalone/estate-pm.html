@@ -2225,11 +2225,15 @@
   // Installs a service worker for offline support + "Add to Home Screen".
   // Silently does nothing where there's no sibling sw.js to find (e.g. the
   // Claude Artifact link) — that's expected, not an error.
+  // registration is null for a content-only update (estate-pm.html changed but sw.js
+  // didn't) — there's no waiting worker to activate, so the reload alone picks up the
+  // freshly revalidated cache entry.
   function showUpdateToast(registration) {
     const el = document.getElementById("updateToast");
     el.style.display = "flex";
     document.getElementById("updateReloadBtn").onclick = () => {
-      if (registration.waiting) registration.waiting.postMessage({ type: "SKIP_WAITING" });
+      if (registration && registration.waiting) registration.waiting.postMessage({ type: "SKIP_WAITING" });
+      else window.location.reload();
     };
   }
   if ('serviceWorker' in navigator) {
@@ -2250,6 +2254,16 @@
       }).catch(() => {});
       // Deliberately not automatic: reload only once the user taps the toast, so a
       // half-typed issue on the gaming floor never gets swept away by a background update.
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'CONTENT_UPDATED') showUpdateToast(null);
+      });
+      // Ask whether the worker already spotted new content — the revalidation that
+      // finds it runs during navigation, so by the time this page can listen, the
+      // moment has passed. The worker keeps a flag; this is the page collecting it.
+      navigator.serviceWorker.ready.then((reg) => {
+        const worker = navigator.serviceWorker.controller || reg.active;
+        if (worker) worker.postMessage({ type: 'CHECK_CONTENT_UPDATE' });
+      });
       let reloading = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (reloading) return;

@@ -145,6 +145,28 @@ after `save()` in the STATE section; the toggle itself renders inside `renderNav
 the brand colour, not something "light mode" should flatten — only `--page`/`--surface`/
 `--ink`/`--accent` etc. actually swap.
 
+## Manifest `id` and install identity vs. the Ledger
+
+`id` was `"/standalone/estate-pm.html"` — a leading slash resolves against the
+**origin root**, not the manifest's own directory, so on GitHub Pages (served from a
+`/Vector-2.0/` subpath, not domain root) it pointed at a page that doesn't exist,
+missing the repo prefix entirely. Now a fully-qualified absolute URL, to remove any
+resolution ambiguity rather than trade one relative-path mistake for another.
+
+That fixes a real bug, but it is not sufficient on its own to guarantee Android treats
+this as a distinct installable app from the Ledger, and don't represent it that way to
+Michael. The Ledger's manifest `scope` is `/Vector-2.0/` — the repo root — and this
+app's own URL (`/Vector-2.0/standalone/estate-pm.html`) sits structurally *inside* that
+scope. A manifest `scope` is a plain URL-prefix match with no way to carve out a
+sub-path exception, so that containment is unavoidable given the current directory
+layout (this app living inside the Ledger's tree), not something a manifest tweak can
+fully resolve. Per spec, per-page `id`/manifest-link identity is supposed to let two
+apps install separately despite nested scopes — the `id` bug above worked against that
+— but real Android/WebAPK behaviour with nested scopes has known rough edges beyond
+spec compliance. If install confusion recurs after this fix, the actual fix is
+structural (separate subdomains, or a build that publishes this app outside the
+Ledger's scope), not another manifest field.
+
 ## PWA update mechanism (`sw.js` + the update toast)
 
 `sw.js`'s cache name is a SHA-256 hash of `estate-pm.html`'s bytes (`hashCacheName()`),
@@ -160,6 +182,38 @@ hash-rename + update-toast path exists for the other case: browsers only detect 
 service worker *update* by byte-diffing `sw.js` itself, so it fires when `sw.js`'s own
 logic changes (a caching-strategy fix, this kind of edit) — that's when you'd otherwise
 risk instance getting stuck on an old worker indefinitely.
+
+**Two bugs found and fixed by writing `tests/test_pwa_update.js`, both real — this
+history matters if the fetch handler gets touched again:**
+
+1. **`event.respondWith(cached)` does not keep the worker alive for the background
+   refetch.** It settles the instant the cached copy is handed over, and the browser
+   is then free to terminate the worker — killing the very network request
+   stale-while-revalidate depends on. The fix wraps a manually-resolved promise in
+   `event.waitUntil()`, called synchronously in the `fetch` handler (must happen while
+   the event is still dispatching), resolved from the background fetch's `.finally()`.
+   Verified: without this, a content-only deploy could sit uncached indefinitely on an
+   installed PWA that never gets fully closed — which is exactly what happened.
+2. **`cached.clone()` throwing "Response body is already used."** `cached` is the same
+   Response object handed to `respondWith()`; once the browser starts piping its body
+   to the page, the stream is disturbed and a later `.clone()` throws. The fix clones
+   immediately after `cache.match()`, before `cached` is ever returned. This one is
+   nastier than it sounds — it lands in a `.catch()` and fails *silently*, so the
+   background revalidation looks like it's running (no errors surfaced) while actually
+   doing nothing.
+
+Content-only changes (editing `estate-pm.html` without touching `sw.js`) still can't
+trigger a *service-worker* update — browsers only byte-diff `sw.js` for that — so
+there's a second signalling path for this case: the background revalidation above
+diffs old vs. new HTML text, and on a real difference writes a flag into the cache
+(`FLAG_URL = './__content-update__'`) *and* broadcasts `{type:'CONTENT_UPDATED'}` to
+open clients. Both halves are required, not redundant — they cover opposite races. The
+flag catches a change spotted before the page was ready to listen (the common case: the
+revalidation runs during the very navigation that loaded the page); the broadcast
+catches one spotted after. The page asks via `CHECK_CONTENT_UPDATE` once
+`navigator.serviceWorker.ready` resolves. `showUpdateToast(null)` (no registration) is
+the content-only path — the reload button falls back to a plain `location.reload()`
+since there's no waiting worker to `SKIP_WAITING`.
 
 `sw.js` does **not** call `self.skipWaiting()` in `install` — a new worker sits
 `waiting` until the page's "Update available" toast (`estate-pm.html`, wired up where
