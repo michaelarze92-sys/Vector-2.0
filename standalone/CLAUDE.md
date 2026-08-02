@@ -19,7 +19,7 @@ order. Grep for `====` to jump between them:
 | QUICK ADD | The always-visible top-bar task quick-add form. |
 | DASHBOARD | Overdue / due-this-week / budget alerts. Pulls from `allDatedItems()` (tasks *and* subtasks with due dates, merged) — don't reintroduce a tasks-only view here. |
 | GANTT | The custom Gantt: zoom levels, drag-to-reschedule, dependency lines, milestones. `renderTaskRow` and `startDrag` are the two functions to understand before touching this. |
-| PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the seven project logs (see below). |
+| PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the eight project logs (see below). |
 | BUDGET / CALENDAR / DATA & BACKUP | Mostly self-contained; Calendar also pulls subtask due dates in, same pattern as Dashboard. |
 | PAGE DISPATCH | `renderPage()` — full re-render of `#content` on every state change, then `bindPageEvents()` re-attaches listeners. No virtual DOM, no diffing. If you add a page, register it in both `PAGES`/dispatch and add its bindings here. |
 | TASK MODAL / PROJECT MODAL / COST MODAL | `<dialog>`-based modals, built fresh (innerHTML) each time they open. |
@@ -38,8 +38,8 @@ Tasks have a `checklist` array (subtasks). Each checklist item can carry its own
 delegation fields, deliberately, so `allDatedItems()` can treat tasks and subtasks
 uniformly.
 
-## The seven project logs (Risk Register, Decisions Log, Q&A Log, Documents Register,
-Key Contacts, Meeting Notes, Tender & Procurement Register)
+## The eight project logs (Risk Register, Decisions Log, Q&A Log, Documents Register,
+Key Contacts, Meeting Notes, Tender & Procurement Register, Budget Checkpoints)
 
 These all follow one generic pattern, defined once as `PROJECT_LOG_ENTITIES` (in the
 PROJECTS LIST & DETAIL section) — an array of `{ key, addAttr, delAttr, fields }`.
@@ -68,7 +68,21 @@ Procurement — signed off by ECT Board, 12 Aug" is exactly what that log is for
 an eighth near-duplicate log type for gate approvals specifically would just be the
 Decisions Log with extra steps — don't build one.
 
-The Tender & Procurement Register (`tenders`) is the newest of the seven — added to
+## Budget Checkpoints (`budgetCheckpoints`)
+
+Sits alongside `stageGate`, not inside the existing Budget page's allocated-vs-spent
+tracking — different question. The Budget page (`budgetLines`) answers "what have we
+actually spent against the pot." `budgetCheckpoints` answers "how has the estimate
+itself evolved as this moved through governance" — an indicative figure at Business
+Case, a signed-off number at Approved, a contracted sum at Procurement/Tender, an
+actual at Close-out. Each checkpoint records `{ stage, amount, date, notes }`; the
+render sorts by `STAGE_GATES.indexOf(stage)` rather than entry order, so the trail
+always reads in gate order even if someone logs a later stage before backfilling an
+earlier one. `amount` is stored as the raw string `FormData` gives it (same as every
+other `PROJECT_LOG_ENTITIES` field) — `money()` coerces it with `Number(n) || 0` at
+render time, so don't add a parseFloat step here that the rest of the file doesn't have.
+
+The Tender & Procurement Register (`tenders`) was added to
 track ITTs/tenders per project (route, status, issue/return dates, est. value, owner)
 now that the Ledger's "Tender & Contract" issue category can promote into a
 "Contractor-Managed" project. It reuses `logStatusChip()` (extended with

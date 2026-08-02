@@ -630,7 +630,7 @@
 
   function freshState() {
     return { venues: SEED_VENUES.map(v => ({ ...v })), projects: [], tasks: [], budgetLines: [],
-      contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [], tenders: [],
+      contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [], tenders: [], budgetCheckpoints: [],
       ui: { collapsed: {}, ganttZoom: "week", calMonth: todayISO().slice(0, 7) } };
   }
 
@@ -696,6 +696,7 @@
   function openRiskCount(id) { return projectRisks(id).filter(r => r.status === "Open").length; }
   function projectMeetingNotes(id) { return state.meetingNotes.filter(n => n.projectId === id); }
   function projectTenders(id) { return state.tenders.filter(t => t.projectId === id); }
+  function projectBudgetCheckpoints(id) { return state.budgetCheckpoints.filter(b => b.projectId === id); }
 
   function toast(msg) {
     const el = document.getElementById("toast");
@@ -1162,6 +1163,7 @@
     const risks = projectRisks(id), decisions = projectDecisions(id), qa = projectQA(id), docs = projectDocuments(id), contacts = projectContacts(id);
     const meetingNotes = projectMeetingNotes(id);
     const tenders = projectTenders(id);
+    const budgetCheckpoints = projectBudgetCheckpoints(id);
 
     return `
       <div class="page-head">
@@ -1189,6 +1191,26 @@
       <div class="card">
         <div class="card-head"><h2>Tasks</h2><span class="g-count">${tasks.length}</span></div>
         <div class="card-body">${tasks.length ? tasks.map(t => taskRowHtml(t, isOverdue(t))).join("") : emptyState("No tasks linked to this project yet — use quick-add at the top.")}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>${ICON.budget} Budget Checkpoints</h2><span class="g-count">${budgetCheckpoints.length}</span></div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Stage</th><th>Amount</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${[...budgetCheckpoints].sort((a, b) => STAGE_GATES.indexOf(a.stage) - STAGE_GATES.indexOf(b.stage)).map(b => `<tr>
+            <td>${escapeHtml(b.stage)}</td><td>${money(b.amount)}</td><td>${fmtShort(b.date)}</td><td>${escapeHtml(b.notes || "—")}</td>
+            <td><button class="icon-x" data-delete-budgetcheckpoint="${b.id}">${ICON.x}</button></td>
+          </tr>`).join("") || `<tr><td colspan="5">${emptyState("No budget checkpoints logged yet — record the estimate at each gate as it firms up.")}</td></tr>`}</tbody>
+        </table></div>
+        <div class="card-body pad">
+          <form class="inline-add-form" data-add-budgetcheckpoint="${id}">
+            <select name="stage">${STAGE_GATES.map(g => `<option ${g === "Business Case" ? "selected" : ""}>${g}</option>`).join("")}</select>
+            <input type="number" name="amount" placeholder="Amount (£)" min="0" step="100" required />
+            <input type="date" name="date" value="${todayISO()}" />
+            <input class="grow2" type="text" name="notes" placeholder="Notes — e.g. lowest compliant bid, XYZ Ltd" />
+            <button class="btn btn-sm" type="submit">${ICON.plus} Add checkpoint</button>
+          </form>
+        </div>
       </div>
 
       <div class="card">
@@ -1370,6 +1392,7 @@
     { key: "contacts", addAttr: "data-add-contact", delAttr: "data-delete-contact", fields: ["name", "orgRole", "area", "phone", "email", "notes"] },
     { key: "meetingNotes", addAttr: "data-add-meetingnote", delAttr: "data-delete-meetingnote", fields: ["date", "title", "source", "body"] },
     { key: "tenders", addAttr: "data-add-tender", delAttr: "data-delete-tender", fields: ["title", "route", "status", "issueDate", "returnDate", "estValue", "owner"] },
+    { key: "budgetCheckpoints", addAttr: "data-add-budgetcheckpoint", delAttr: "data-delete-budgetcheckpoint", fields: ["stage", "amount", "date", "notes"] },
   ];
 
   function bindProjectDetailEvents(root) {
