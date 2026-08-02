@@ -5,7 +5,7 @@
  * if you do, installed phones can keep serving a stale app forever, which is the
  * classic PWA trap.
  */
-const CACHE_NAME = 'estates-ledger-ef9af18d9998';
+const CACHE_NAME = 'estates-ledger-df52c17aa0ea';
 
 /* The app is one self-contained HTML file: fonts, logos, video and photos are all
  * base64-inlined, so there are no other runtime requests to cache. */
@@ -144,9 +144,15 @@ self.addEventListener('fetch', (event) => {
   if (!isOurs(url)) return;
 
   /* Stale-while-revalidate: serve the cached copy immediately so the app opens
-   * instantly and works with no signal, then refresh it in the background. */
+   * instantly and works with no signal, then refresh it in the background.
+   *
+   * ignoreSearch is load-bearing. The manifest shortcuts and the Android share target
+   * launch the app with a query string ("./?action=walk", "./?text=..."), and an exact
+   * match would miss the cached "./" entirely — so every shortcut would be a blank page
+   * on a phone with no signal, which is exactly where they get used. Safe here because
+   * nothing in the shell varies by query string. */
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(event.request, { ignoreSearch: true }).then((cached) => {
       const fromNetwork = fetch(event.request)
         .then((response) => {
           if (response && response.status === 200 && response.type === 'basic') {

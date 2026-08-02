@@ -645,6 +645,33 @@
     .today-acts{ order:4; margin-left:auto; }
   }
 
+  .walk-lead{ font-size:.88rem; color:var(--ink); margin-bottom:14px; line-height:1.5; }
+  .walk-sites{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .walk-site-btn{ justify-content:flex-start; gap:8px; padding:14px 12px; font-size:.9rem; }
+  .walk-mic{ width:100%; padding:16px; font-size:1rem; margin-bottom:10px; }
+  .walk-type{ display:flex; gap:8px; margin-bottom:12px; }
+  .walk-type input{
+    flex:1; background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:11px 12px; color:var(--ink); font-size:.88rem;
+  }
+  .walk-photo{ width:100%; margin-bottom:16px; }
+  .walk-list{ margin-bottom:18px; }
+  .walk-row{
+    display:flex; align-items:center; gap:8px; padding:10px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .walk-row-main{ flex:1; min-width:0; }
+  /* NOT .note-del — that one is position:absolute for the notes list, so reusing it here
+     stacked every row's ✕ in the same corner of the modal, on top of each other. */
+  .walk-del{
+    flex:0 0 auto; width:30px; height:30px; border-radius:var(--radius);
+    background:transparent; color:var(--ink-dim); border:1px solid var(--line);
+    font-size:.72rem; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .walk-del:hover{ background:var(--surface-2); color:var(--sev-red); border-color:var(--sev-red); }
+  .walk-finish{ width:100%; }
+  @media (max-width:480px){ .walk-sites{ grid-template-columns:1fr; } }
+
   .backup-nudge{
     display:flex; align-items:center; gap:10px; margin-bottom:16px;
     background:var(--surface); border:1px solid var(--sev-yellow); border-left:3px solid var(--sev-yellow);
@@ -702,6 +729,7 @@
     </div>
     <div class="topbar-actions">
       <button class="btn btn-sm btn-primary" id="todayBtn">Today</button>
+      <button class="btn btn-sm" id="walkBtn" title="Log several faults at one venue">Walk</button>
       <button class="icon-btn" id="voiceCaptureBtn" title="Log an issue by voice" aria-label="Log an issue by voice">🎤</button>
       <button class="btn btn-sm" id="sitesBtn">Sites</button>
       <button class="btn btn-sm" id="reportsBtn">Reports</button>
@@ -1026,6 +1054,19 @@
       <button class="icon-btn" id="todayCloseBtn" aria-label="Close">✕</button>
     </div>
     <div class="modal-body" id="todayModalBody"></div>
+  </div>
+</div>
+
+<!-- Site walk: one venue, many faults. Walking a property you log five things at one
+     site, not one thing at five sites — so the venue is picked once and everything after
+     that is capture. -->
+<div class="modal-overlay full" id="walkOverlay">
+  <div class="modal modal-full">
+    <div class="modal-head">
+      <h2 id="walkTitle">Site walk</h2>
+      <button class="icon-btn" id="walkCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="walkBody"></div>
   </div>
 </div>
 
@@ -3921,6 +3962,166 @@
     }).catch(function(){ showToast("Couldn't request notification permission."); });
   }
 
+  /* ---------------- site walk ----------------
+
+     The one place in this app where capture saves immediately rather than opening the
+     form for review. That's a deliberate reversal: walking a gaming floor you are
+     holding a phone in one hand and looking at a fault, and an unsaved half-typed form
+     is lost the moment something interrupts you. Losing a fault you spotted is worse
+     than an imperfect record — and every entry is listed with an edit and a delete right
+     there, so a bad capture costs one tap.
+
+     Everything else is unchanged: same issue shape, same store, same save(). */
+  var walkSite = null;
+  var walkLogged = [];   // issue ids captured this walk, newest first
+
+  function openWalk(site){
+    walkSite = site || null;
+    walkLogged = [];
+    document.getElementById("walkOverlay").classList.add("open");
+    renderWalk();
+  }
+
+  function walkLog(text){
+    var t = String(text || "").replace(/\s+/g, " ").trim();
+    if(!t){ showToast("Nothing to log."); return null; }
+    if(!walkSite){ showToast("Pick a site first."); return null; }
+    var issue = {
+      id: uid(),
+      title: t.slice(0, 90),
+      site: walkSite,
+      // "Other" when nothing matches — CATEGORIES[0] would silently file it as Fabric
+      category: guessCategoryFromText(t) || "Other",
+      description: t,
+      risk: "2", urgency: "2", cost: "2",       // middling until reviewed — never guess severity
+      status: "Open",
+      assigned: "",
+      dateReported: todayISO(),
+      targetDate: guessDateFromText(t) || "",
+      resolvedDate: "",
+      costEstimate: "", actualCost: "",
+      tags: [], notes: []
+    };
+    issues.unshift(issue);
+    save(STORAGE_KEY, issues);
+    rememberSite(walkSite);
+    walkLogged.unshift(issue.id);
+    renderAll();
+    renderWalk();
+    return issue;
+  }
+
+  function walkMarkup(){
+    if(!walkSite){
+      return '<div class="walk-lead">Which venue are you walking?</div>' +
+        '<div class="walk-sites">' +
+          PROPERTY_ORDER.map(function(s){
+            return '<button class="btn walk-site-btn" data-walk-site="' + escapeHtml(s) + '">' +
+                   '<span class="dot" style="' + siteColorCss(s) + '"></span>' + escapeHtml(s) + '</button>';
+          }).join("") +
+        '</div>';
+    }
+
+    var html = '<div class="walk-lead">Walking <strong>' + escapeHtml(walkSite) + '</strong>. ' +
+      'Everything you capture is logged here straight away — check the details later.</div>';
+
+    html += '<button class="btn btn-primary walk-mic" id="walkMicBtn">🎤 Speak a fault</button>';
+    html += '<div class="walk-type">' +
+      '<input type="text" id="walkText" placeholder="…or type it — e.g. cracked tile by the cashier desk" autocomplete="off">' +
+      '<button class="btn btn-primary" id="walkAddBtn">Add</button>' +
+    '</div>';
+
+    if(walkLogged.length){
+      html += '<button class="btn btn-camera walk-photo" id="walkPhotoBtn">📷 Photo for the last one</button>';
+    }
+
+    html += '<div class="walk-list">';
+    html += '<span class="eyebrow">Logged this walk (' + walkLogged.length + ')</span>';
+    if(!walkLogged.length){
+      html += '<div class="today-note">Nothing yet. Speak or type and it appears here.</div>';
+    } else {
+      walkLogged.forEach(function(id){
+        var i = issues.find(function(x){ return x.id === id; });
+        if(!i) return;
+        html += '<div class="walk-row">' +
+          '<div class="walk-row-main">' +
+            '<div class="today-title">' + escapeHtml(i.title) + '</div>' +
+            '<div class="today-meta">' + escapeHtml(i.category) +
+              (i.targetDate ? ' · target ' + fmtDate(i.targetDate) : '') + '</div>' +
+          '</div>' +
+          '<button class="btn btn-sm" data-walk-edit="' + i.id + '">Edit</button>' +
+          '<button class="walk-del" data-walk-del="' + i.id + '" aria-label="Delete">✕</button>' +
+        '</div>';
+      });
+    }
+    html += '</div>';
+    html += '<button class="btn walk-finish" id="walkFinishBtn">Finish walk</button>';
+    return html;
+  }
+
+  function renderWalk(){
+    var body = document.getElementById("walkBody");
+    document.getElementById("walkTitle").textContent = walkSite ? ("Site walk — " + walkSite) : "Site walk";
+    body.innerHTML = walkMarkup();
+
+    body.querySelectorAll("[data-walk-site]").forEach(function(btn){
+      btn.addEventListener("click", function(){ walkSite = btn.getAttribute("data-walk-site"); renderWalk(); });
+    });
+
+    var addBtn = document.getElementById("walkAddBtn");
+    var textInput = document.getElementById("walkText");
+    if(addBtn) addBtn.addEventListener("click", function(){
+      if(walkLog(textInput.value)) { /* re-rendered; focus the fresh input */ }
+      var fresh = document.getElementById("walkText");
+      if(fresh) fresh.focus();
+    });
+    if(textInput) textInput.addEventListener("keydown", function(e){
+      if(e.key === "Enter"){ e.preventDefault(); document.getElementById("walkAddBtn").click(); }
+    });
+
+    var mic = document.getElementById("walkMicBtn");
+    if(mic) mic.addEventListener("click", startWalkVoice);
+
+    var photo = document.getElementById("walkPhotoBtn");
+    if(photo) photo.addEventListener("click", function(){
+      cameraTarget = { mode: "issue", id: walkLogged[0] };
+      document.getElementById("cameraInput").click();
+    });
+
+    body.querySelectorAll("[data-walk-edit]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var issue = issues.find(function(x){ return x.id === btn.getAttribute("data-walk-edit"); });
+        if(!issue) return;
+        document.getElementById("walkOverlay").classList.remove("open");
+        openForm(issue);
+      });
+    });
+    body.querySelectorAll("[data-walk-del]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id = btn.getAttribute("data-walk-del");
+        issues = issues.filter(function(x){ return x.id !== id; });
+        walkLogged = walkLogged.filter(function(x){ return x !== id; });
+        save(STORAGE_KEY, issues);
+        renderAll(); renderWalk();
+        showToast("Removed.");
+      });
+    });
+
+    var finish = document.getElementById("walkFinishBtn");
+    if(finish) finish.addEventListener("click", function(){
+      var n = walkLogged.length, at = walkSite;
+      document.getElementById("walkOverlay").classList.remove("open");
+      showToast(n ? (n + " issue" + (n === 1 ? "" : "s") + " logged at " + at + ". Review them when you're off the floor.")
+                  : "Walk closed — nothing logged.");
+      walkSite = null; walkLogged = [];
+    });
+  }
+
+  document.getElementById("walkBtn").addEventListener("click", function(){ openWalk(null); });
+  document.getElementById("walkCloseBtn").addEventListener("click", function(){
+    document.getElementById("walkOverlay").classList.remove("open");
+  });
+
   /* ---------------- paste-an-email quick capture ---------------- */
 
   /* Regex and keyword heuristics only — no AI, no network calls, consistent with the
@@ -5251,12 +5452,15 @@
   }
 
   var CATEGORY_KEYWORDS = [
-    [/\b(m&e|mechanical|electrical|plant|chiller|hvac|plumbing|boiler|ac unit|air con)\b/i, "M&E / Plant"],
-    [/\b(fire|h&s|health\s*&?\s*safety|riddor|risk assessment|fra\b)\b/i, "Health & Safety"],
+    [/\b(m&e|mechanical|electrical|plant|chiller|hvac|plumbing|boiler|ac unit|air con|aircon|lift|escalator|ventilation|extract|extraction|ahu|pump|compressor)\b/i, "M&E / Plant"],
+    /* Emergency lighting, extinguishers and the statutory inspections belong here, not in
+       whatever category happens to be first. Michael logs these constantly and the list
+       didn't cover a single one of them. */
+    [/\b(fire|h&s|health\s*&?\s*safety|riddor|risk assessment|fra\b|emergency light\w*|extinguisher|evacuation|first aid|near miss|accident|ppe|asbestos|legionella|water hygiene|loler|eicr|pat test\w*|slip|trip hazard)\b/i, "Health & Safety"],
     [/\b(dalkia|\bsla\b)\b/i, "FM / Dalkia SLA"],
     [/\b(capital|refurb|refurbishment|reformat)\b/i, "Capital Project"],
     [/\b(tender|itt\b|procurement|re-?tender)\b/i, "Tender & Contract"],
-    [/\b(fabric|building|roof|door|window|floor|ceiling|wall|leak)\b/i, "Fabric & Building"]
+    [/\b(fabric|building|roof|door|window|floor|ceiling|wall|leak|tile|tiles|carpet|plaster|glazing|paint\w*|lock|damp)\b/i, "Fabric & Building"]
   ];
   var CATEGORY_WHOLE_WORDS = [
     "m&e","mechanical","electrical","plant","chiller","hvac","plumbing","boiler","ac unit","air con",
@@ -5859,7 +6063,7 @@
   var voiceMode = "vector";   // "vector" = a command for the assistant, "issue" = dictate a new issue
 
   function clearMicActive(){
-    ["vectorMicBtn", "voiceCaptureBtn", "todayVoiceBtn"].forEach(function(id){
+    ["vectorMicBtn", "voiceCaptureBtn", "todayVoiceBtn", "walkMicBtn"].forEach(function(id){
       var el = document.getElementById(id);
       if(el) el.classList.remove("active");
     });
@@ -5890,6 +6094,11 @@
        only reliably supports one live capture. */
     recognizer.onresult = function(e){
       var transcript = e.results[0][0].transcript;
+      if(voiceMode === "walk"){
+        // straight to the walk list — no form, no site to pick, ready for the next one
+        walkLog(transcript);
+        return;
+      }
       if(voiceMode === "issue"){
         /* Straight through the email parser: dictation and a pasted email are the same
            problem — free text in, a best-guess issue out — and it already knows the venue
@@ -5936,6 +6145,49 @@
     try{ recognizer.start(); }catch(e){ recognizing = false; this.classList.remove("active"); }
   });
   document.getElementById("voiceCaptureBtn").addEventListener("click", startVoiceCapture);
+
+  function startWalkVoice(){
+    if(!recognizer){ showToast("Voice input isn't supported here — type it instead."); return; }
+    if(recognizing){ recognizer.stop(); return; }
+    voiceMode = "walk";
+    recognizing = true;
+    var btn = document.getElementById("walkMicBtn");
+    if(btn) btn.classList.add("active");
+    showToast("Listening — say what's wrong and where in the building.");
+    try { recognizer.start(); }
+    catch(e){ recognizing = false; clearMicActive(); showToast("Couldn't start the microphone."); }
+  }
+
+  /* ---------------- launch parameters ----------------
+
+     Home-screen shortcuts (manifest `shortcuts`) and the Android share sheet (manifest
+     `share_target`) both arrive as an ordinary page load with a query string. This is the
+     only place that reads it.
+
+     Two things matter: the query string is cleared immediately, so a pull-to-refresh
+     doesn't re-fire the action or re-open a shared item a second time; and the action is
+     deferred a beat so the rest of the app has rendered before a drawer opens over it. */
+  (function handleLaunchParams(){
+    var params;
+    try { params = new URLSearchParams(location.search); } catch(e){ return; }
+    var action = params.get("action");
+    var shared = [params.get("title"), params.get("text"), params.get("url")]
+                   .filter(Boolean).join("\n");
+    if(!action && !shared) return;
+    if(window.history && history.replaceState) history.replaceState({}, "", location.pathname);
+
+    setTimeout(function(){
+      if(shared){
+        openForm(null, parseEmailText(shared));
+        showToast("Shared in — check the details and save.");
+        return;
+      }
+      if(action === "walk") openWalk(null);
+      else if(action === "voice") startVoiceCapture();
+      else if(action === "today"){ document.getElementById("todayOverlay").classList.add("open"); renderToday(); }
+      else if(action === "new") openForm();
+    }, 250);
+  })();
 
   /* ---------------- background video ---------------- */
 

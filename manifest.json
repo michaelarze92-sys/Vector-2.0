@@ -1,7 +1,7 @@
 {
-  "name": "Metropolitan Estates — Estates Ledger",
+  "name": "Metropolitan Estates \u2014 Estates Ledger",
   "short_name": "Estates Ledger",
-  "description": "Property and SHE issue log across the Metropolitan Gaming estate — issues, compliance, site profiles and Board SHE reporting.",
+  "description": "Property and SHE issue log across the Metropolitan Gaming estate \u2014 issues, compliance, site profiles and Board SHE reporting.",
   "start_url": "./",
   "scope": "./",
   "id": "/Vector-2.0/",
@@ -10,8 +10,70 @@
   "background_color": "#2B0A10",
   "theme_color": "#2B0A10",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
-  ]
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Site walk",
+      "short_name": "Walk",
+      "description": "Log several faults at one venue without re-picking the site",
+      "url": "./?action=walk",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Log by voice",
+      "short_name": "Voice",
+      "description": "Speak a fault and check the pre-filled form",
+      "url": "./?action=voice",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Today",
+      "short_name": "Today",
+      "description": "What needs doing today",
+      "url": "./?action=today",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }

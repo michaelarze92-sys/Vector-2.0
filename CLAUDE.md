@@ -53,6 +53,16 @@ Qualifications held: NEBOSH General Certificate, IOSH membership, a recognised F
 
 Format is RAG-coloured throughout (GREEN/AMBER/RED against target), one row per venue per metric, action-owner named for accountability.
 
+**Leases — tenant side (next build):** Michael leases FROM landlords; the lease module must
+be written from the occupier's perspective, not the landlord's. That means: break clauses as
+*his option to protect* (with the notice period, so the action date is months before the
+break date), dilapidations exposure, schedule of condition, upward-only review risk, service
+charge caps and challenge rights, landlord consent for alterations (critical for gaming floor
+refits), FRI repairing liability, and rates appeal deadlines. MG currently has no central
+CAFM — they rely on contractor portals such as Dalkia's — so no corporate system is coming
+that would make this redundant, and the lease dates most likely sit with the Managing Agent,
+who doesn't carry the cost of a missed break.
+
 **Upcoming tender deadlines:**
 - _(none logged yet)_
 

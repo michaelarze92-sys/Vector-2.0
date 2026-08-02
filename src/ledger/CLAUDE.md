@@ -507,3 +507,54 @@ Each answer states its own limits — contractor stats say they measure what's l
 rather than the contractor's own KPI data; the trend says this month isn't finished;
 compliance flags register entries with no due date as an audit finding in their own right.
 Keep that. An analytic that overstates its confidence is worse than none.
+
+
+## Site walk, shortcuts and the share target
+
+### Site walk (`#walkOverlay`)
+
+Walking a property you log five faults at **one** venue, not one fault at five venues — so
+the venue is picked once and everything after is capture. Typed, spoken (`voiceMode ===
+"walk"`) and photographed all feed the same `walkLog()`.
+
+**This is the one place in the app where capture saves immediately instead of opening the
+form for review, and that reversal is deliberate.** On a gaming floor an unsaved half-typed
+form is lost the moment something interrupts you; losing a fault you spotted is worse than
+an imperfect record. The trade is paid for by the walk list: every entry has Edit (hands
+over to the ordinary form) and a one-tap delete. If you change one half, change the other.
+
+Severity is left at 2/2/2 — never guessed. Category comes from `guessCategoryFromText`
+and falls back to **"Other"**, not `CATEGORIES[0]`, which would silently file everything
+unrecognised as Fabric & Building.
+
+`.walk-del` exists because `.note-del` is `position:absolute` for the notes list — reusing
+it stacked every row's ✕ in the same corner of the modal, on top of each other. Playwright
+caught it as one button intercepting another's clicks.
+
+### Launch parameters
+
+Manifest `shortcuts` (long-press the home-screen icon) and `share_target` (the Android
+share sheet) both arrive as an ordinary page load with a query string.
+`handleLaunchParams()` is the only place that reads it:
+
+| Query | Does |
+|---|---|
+| `?action=walk` | opens the venue picker |
+| `?action=voice` | starts dictation into a new issue |
+| `?action=today` | opens Today |
+| `?title=&text=&url=` | share target — through `parseEmailText` into the pre-filled form |
+
+The query string is cleared with `replaceState` immediately, or a pull-to-refresh re-fires
+the action and re-opens a shared item a second time.
+
+**`caches.match` in `sw.js` needs `ignoreSearch: true`.** Shortcuts land on `./?action=…`,
+which an exact match would miss against the cached `./` — so every shortcut would be a
+blank page on a phone with no signal, which is precisely where they get used.
+
+`share_target` is `method: "GET"`. There is no server to POST to.
+
+### Not possible: an Android home-screen widget
+
+Android widgets need the App Widget API, which needs a native APK. The manifest `widgets`
+field is **Windows 11 only**. Shortcuts plus the share target are as close as a PWA gets;
+anything more needs a TWA wrapper. Don't promise a widget.
