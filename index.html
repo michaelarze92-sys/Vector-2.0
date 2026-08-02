@@ -631,6 +631,8 @@
     border-bottom:1px solid var(--line); cursor:pointer;
   }
   .today-row-flat{ cursor:default; }
+  .today-row-flat[data-lease-site]{ cursor:pointer; }
+  .today-row-flat[data-lease-site]:hover{ background:var(--surface); }
   .today-row:hover{ background:var(--surface); }
   .today-row-flat:hover{ background:none; }
   .today-sev{ width:4px; align-self:stretch; border-radius:2px; flex:0 0 auto; min-height:26px; }
@@ -644,6 +646,26 @@
     .today-row{ flex-wrap:wrap; }
     .today-acts{ order:4; margin-left:auto; }
   }
+
+  .lease-alerts, .lease-risks{ margin-bottom:18px; }
+  .lease-alert{
+    display:flex; align-items:center; gap:10px; padding:10px 12px; margin-top:8px;
+    background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--sev-yellow);
+    border-radius:var(--radius);
+  }
+  .lease-alert.critical{ border-left-color:var(--sev-red); }
+  .la-main{ flex:1; min-width:0; }
+  .la-label{ font-size:.86rem; color:var(--ink); font-weight:600; }
+  .la-detail{ font-size:.74rem; color:var(--ink-dim); margin-top:2px; }
+  .la-when{ font-family:'Plex Mono',monospace; font-size:.74rem; white-space:nowrap; }
+  .lease-risk{
+    font-size:.8rem; color:var(--ink); line-height:1.5; padding:9px 11px; margin-top:8px;
+    background:var(--surface); border-left:3px solid var(--accent); border-radius:var(--radius);
+  }
+  .lease-group{ margin-bottom:20px; }
+  .lease-grid{ display:grid; grid-template-columns:1fr 1fr; gap:0 12px; margin-top:8px; }
+  .lease-grid .field:has(textarea){ grid-column:1 / -1; }
+  @media (max-width:720px){ .lease-grid{ grid-template-columns:1fr; } }
 
   .walk-lead{ font-size:.88rem; color:var(--ink); margin-bottom:14px; line-height:1.5; }
   .walk-sites{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -1328,6 +1350,152 @@
     ["tenants", "Tenants / sub-lets"], ["casinoDirector", "Casino Director"], ["fmContractors", "FM contractors used"],
     ["licenceRef", "Gaming licence ref"]
   ];
+  /* ---------------- leases (occupier side) ----------------
+
+     Michael leases FROM landlords. Every field here is written from the tenant's side:
+     a break clause is HIS option to protect, not the landlord's; a repairing obligation
+     is HIS liability; a review is HIS downside risk. A landlord-side lease module would
+     record the same dates and draw exactly the wrong conclusions from them.
+
+     The single most valuable thing in this module is derived, not entered: the date
+     notice must be SERVED, which is the break date minus the notice period. That is
+     typically 6–12 months earlier than the date written on the lease, it is the date
+     that actually matters, and missing it forfeits the break for the rest of the term. */
+  var LEASE_GROUPS = [
+    { key: "term", title: "Term", fields: [
+      ["landlordAgent", "Landlord's agent", "text", "Managing agent acting for the landlord"],
+      ["ourAgent", "Our managing agent", "text", ""],
+      ["demise", "Demise", "text", "Floors / areas let to us"],
+      ["startDate", "Term start", "date", ""],
+      ["expiryDate", "Term expiry", "date", ""],
+      ["passingRent", "Passing rent (£/yr)", "number", ""],
+      ["securityOfTenure", "Security of tenure", "select", ["", "Protected (1954 Act)", "Contracted out", "Unknown"]],
+    ]},
+    { key: "break", title: "Break option — our exit", fields: [
+      ["breakType", "Whose option", "select", ["", "Tenant only", "Mutual", "Landlord only", "None"]],
+      ["breakDate", "Break date", "date", ""],
+      ["breakNoticeMonths", "Notice required (months)", "number", "e.g. 6"],
+      ["breakConditions", "Conditions attached", "textarea", "e.g. rent paid up to date, vacant possession, no subsisting breaches"],
+    ]},
+    { key: "review", title: "Rent review", fields: [
+      ["reviewDate", "Next review", "date", ""],
+      ["reviewBasis", "Basis", "select", ["", "Open market", "RPI", "CPI", "Fixed uplift", "Turnover", "None"]],
+      ["reviewUpwardOnly", "Upward only", "select", ["", "Yes", "No", "Unknown"]],
+      ["reviewNote", "Note", "textarea", "Cap or collar, assumptions, disregards"],
+    ]},
+    { key: "repair", title: "Repair & dilapidations", fields: [
+      ["repairingObligation", "Repairing obligation", "select", ["", "FRI (full repairing & insuring)", "Internal repairing only", "Limited by schedule of condition", "Unknown"]],
+      ["scheduleOfCondition", "Schedule of condition", "select", ["", "Yes", "No", "Unknown"]],
+      ["dilapsProvision", "Dilapidations provision (£)", "number", ""],
+      ["dilapsNote", "Note", "textarea", "Known wants of repair, last surveyor's view"],
+    ]},
+    { key: "consents", title: "Consents & restrictions", fields: [
+      ["alterationsConsent", "Consent for alterations", "select", ["", "Required", "Required — not to be unreasonably withheld", "Not required", "Unknown"]],
+      ["alienation", "Assignment / subletting", "select", ["", "Permitted with consent", "Prohibited", "Group companies only", "Unknown"]],
+      ["useClause", "Permitted use", "text", "Narrow use clauses restrict resale and change of use"],
+    ]},
+    { key: "charges", title: "Service charge & rates", fields: [
+      ["serviceCharge", "Service charge (£/yr)", "number", ""],
+      ["serviceChargeCap", "Cap", "text", "£ or % — blank means uncapped"],
+      ["serviceChargeYearEnd", "SC year end", "text", "e.g. 31 December"],
+      ["rateableValue", "Rateable value (£)", "number", ""],
+      ["ratesAppealDeadline", "Rates appeal deadline", "date", ""],
+    ]},
+    { key: "docs", title: "Documents & notes", fields: [
+      ["leaseDocUrl", "Lease document link", "text", "SharePoint / Drive link"],
+      ["notes", "Notes", "textarea", ""],
+    ]},
+  ];
+
+  function getLease(site){ return getSiteDetail(site).lease || {}; }
+  function saveLease(site, lease){
+    var d = getSiteDetail(site);
+    d.lease = lease;
+    saveSiteDetail(site, d);
+  }
+
+  /* Step back whole months, clamping the day rather than letting it roll forward.
+     Naive setMonth turns 31 March minus one month into 3 March — later than intended.
+     For a notice deadline, later is the direction that loses the break. */
+  function monthsBefore(iso, months){
+    if(!iso) return "";
+    var d = parseISO(iso), day = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - (Number(months) || 0));
+    var lastOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, lastOfMonth));
+    return toISO(d);
+  }
+
+  /* Lead times are deliberately long and deliberately different. A break notice needs a
+     year because the decision behind it — do we stay — involves the Exec, and once the
+     date passes there is no remedy at all. A rates appeal needs three months because it
+     is a form. Treating them the same would either bury the break or spam the appeal. */
+  function leaseAlerts(site){
+    var L = getLease(site), out = [];
+    function add(key, label, date, lead, detail, critical){
+      if(!date) return;
+      out.push({ kind: "lease", site: site, key: key, label: label, date: date,
+                 days: daysUntil(date), lead: lead, detail: detail || "", critical: !!critical });
+    }
+    if(L.breakDate){
+      var months = Number(L.breakNoticeMonths) || 0;
+      add("breakNotice", "Serve break notice by", monthsBefore(L.breakDate, months), 365,
+        "Break " + fmtDate(L.breakDate) + " · " + (months ? months + " months' notice" : "notice period not recorded") +
+        (L.breakConditions ? " · conditional" : ""), true);
+    }
+    add("expiry", "Lease expires", L.expiryDate, 540,
+      "Decide renew, re-gear or exit — and allow relocation lead time if exiting");
+    add("review", "Rent review", L.reviewDate, 180,
+      (L.reviewBasis ? L.reviewBasis + " basis" : "basis not recorded") +
+      (L.reviewUpwardOnly === "Yes" ? " · upward only" : ""));
+    add("ratesAppeal", "Rates appeal deadline", L.ratesAppealDeadline, 90,
+      L.rateableValue ? ("RV " + fmtMoney(L.rateableValue)) : "");
+    return out;
+  }
+
+  function collectLeaseAlerts(){
+    var out = [];
+    PROPERTY_ORDER.forEach(function(s){
+      leaseAlerts(s).forEach(function(a){
+        if(a.days !== null && a.days <= a.lead) out.push(a);
+      });
+    });
+    out.sort(function(x, y){ return x.days - y.days; });
+    return out;
+  }
+
+  /* The advisory half. These aren't dates — they're the things a tenant gets caught by,
+     stated as exposure rather than as neutral facts. */
+  function leaseRisks(site){
+    var L = getLease(site), out = [];
+    if(L.breakDate && !Number(L.breakNoticeMonths)){
+      out.push("Break date recorded with no notice period. The date you actually have to act is unknown — and a break missed by a day is forfeited for the rest of the term.");
+    }
+    if(L.breakConditions){
+      out.push("The break is conditional: " + L.breakConditions + ". Conditional breaks are routinely lost on technicalities — confirm every condition can be met well before the notice date, not after serving.");
+    }
+    if(/^FRI/i.test(L.repairingObligation || "") && L.scheduleOfCondition !== "Yes"){
+      out.push("Full repairing liability with no schedule of condition on file. Dilapidations exposure is open-ended — a schedule limits it to the condition recorded at the start of the term.");
+    }
+    if(L.repairingObligation && /^FRI/i.test(L.repairingObligation) && !Number(L.dilapsProvision)){
+      out.push("No dilapidations provision recorded against an FRI lease. Worth a surveyor's estimate before it lands as an unbudgeted exit cost.");
+    }
+    if(L.reviewUpwardOnly === "Yes" && L.reviewDate){
+      out.push("Upward-only review on " + fmtDate(L.reviewDate) + ". Rent cannot fall at review whatever the market does — the only protection is the evidence you bring.");
+    }
+    if(Number(L.serviceCharge) && !(L.serviceChargeCap || "").trim()){
+      out.push("Service charge with no cap recorded. Uncapped service charge is an unbounded cost — check the lease for a cap or a challenge mechanism before the next certificate.");
+    }
+    if(/^Required/i.test(L.alterationsConsent || "")){
+      out.push("Landlord consent required for alterations. Build consent time into any gaming floor reformat or M&E programme — it sits on the critical path and the landlord sets the pace.");
+    }
+    if(L.securityOfTenure === "Contracted out" && L.expiryDate){
+      out.push("Contracted out of the 1954 Act. There is no automatic right to renew at expiry on " + fmtDate(L.expiryDate) + " — negotiation has to start early or the venue is at risk.");
+    }
+    return out;
+  }
+
   var COMPLIANCE_TYPES = [
     "Fire Risk Assessment", "Water Hygiene / Legionella", "Electrical Testing (EICR)", "Lift Inspection (LOLER)",
     "Fire Alarm Test", "Emergency Lighting Test", "Fire Extinguisher Service", "PAT Testing",
@@ -1929,9 +2097,89 @@
     wireSiteProfile(site);
   }
 
+  function leaseFieldMarkup(f, val){
+    var id = "lz-" + f[0], label = escapeHtml(f[1]);
+    if(f[2] === "select"){
+      return '<div class="field"><label for="' + id + '">' + label + '</label><select id="' + id + '">' +
+        f[3].map(function(o){
+          return '<option value="' + escapeHtml(o) + '"' + (o === val ? " selected" : "") + '>' +
+                 escapeHtml(o || "—") + '</option>';
+        }).join("") + '</select></div>';
+    }
+    if(f[2] === "textarea"){
+      return '<div class="field"><label for="' + id + '">' + label + '</label>' +
+        '<textarea id="' + id + '" placeholder="' + escapeHtml(f[3] || "") + '">' + escapeHtml(val) + '</textarea></div>';
+    }
+    return '<div class="field"><label for="' + id + '">' + label + '</label>' +
+      '<input type="' + f[2] + '" id="' + id + '" value="' + escapeHtml(val) + '"' +
+      (f[3] ? ' placeholder="' + escapeHtml(f[3]) + '"' : "") + '></div>';
+  }
+
+  function leasePaneMarkup(site){
+    var L = getLease(site);
+    var alerts = leaseAlerts(site);
+    var risks = leaseRisks(site);
+
+    var html = '<div class="chase-note">Recorded from the <strong>occupier\'s</strong> side — this is what we owe and what we can protect, not the landlord\'s position. ' +
+      'The dates that matter are worked out for you: the notice deadline below is the break date less the notice period, ' +
+      'which is the date you actually have to act on.</div>';
+
+    if(alerts.length){
+      html += '<div class="lease-alerts"><span class="eyebrow">Key dates</span>' +
+        alerts.map(function(a){
+          var tone = a.days < 0 ? "var(--sev-red)" : (a.days <= 90 ? "var(--sev-red)" : (a.days <= a.lead ? "var(--sev-yellow)" : "var(--ink-dim)"));
+          var when = a.days < 0 ? (Math.abs(a.days) + " days ago") : ("in " + a.days + " days");
+          return '<div class="lease-alert' + (a.critical ? " critical" : "") + '">' +
+            '<div class="la-main"><div class="la-label">' + escapeHtml(a.label) + ' ' + fmtDate(a.date) + '</div>' +
+            (a.detail ? '<div class="la-detail">' + escapeHtml(a.detail) + '</div>' : "") + '</div>' +
+            '<span class="la-when" style="color:' + tone + ';">' + when + '</span>' +
+          '</div>';
+        }).join("") + '</div>';
+    }
+
+    if(risks.length){
+      html += '<div class="lease-risks"><span class="eyebrow">Exposure</span>' +
+        risks.map(function(r){ return '<div class="lease-risk">' + escapeHtml(r) + '</div>'; }).join("") +
+        '<div class="today-note">Flagged from what\'s recorded — not legal advice. Anything turning on interpretation of the lease needs your solicitor or a surveyor.</div>' +
+      '</div>';
+    }
+
+    LEASE_GROUPS.forEach(function(g){
+      html += '<div class="lease-group"><span class="eyebrow">' + escapeHtml(g.title) + '</span>';
+      html += '<div class="lease-grid">' + g.fields.map(function(f){
+        return leaseFieldMarkup(f, L[f[0]] === undefined ? "" : String(L[f[0]]));
+      }).join("") + '</div></div>';
+    });
+
+    html += '<button class="btn btn-primary" id="saveLeaseBtn">Save lease</button>';
+    return html;
+  }
+
+  function wireLeasePane(site){
+    var btn = document.getElementById("saveLeaseBtn");
+    if(!btn) return;
+    btn.addEventListener("click", function(){
+      var L = {};
+      LEASE_GROUPS.forEach(function(g){
+        g.fields.forEach(function(f){
+          var el = document.getElementById("lz-" + f[0]);
+          if(el) L[f[0]] = el.value.trim();
+        });
+      });
+      saveLease(site, L);
+      // re-render so the derived notice date and the exposure flags update immediately
+      document.getElementById("profileLeasePane").innerHTML = leasePaneMarkup(site);
+      wireLeasePane(site);
+      document.querySelector('[data-ptab="lease"]').click();
+      renderAll();
+      showToast("Lease saved.");
+    });
+  }
+
   function siteProfileMarkup(site, r){
     var html = '<div class="profile-tabs">'+
       '<button class="profile-tab active" data-ptab="overview">Overview</button>'+
+      '<button class="profile-tab" data-ptab="lease">Lease</button>'+
       '<button class="profile-tab" data-ptab="board">Board Report</button>'+
     '</div>';
     html += '<div id="profileOverviewPane">';
@@ -2024,11 +2272,13 @@
     html += '</div>';
     html += '</div>'; // /profileOverviewPane
 
+    html += '<div id="profileLeasePane" style="display:none;">' + leasePaneMarkup(site) + '</div>';
     html += '<div id="profileBoardPane" style="display:none;">' + renderBoardReportPane(site) + '</div>';
     return html;
   }
 
   function wireSiteProfile(site){
+    wireLeasePane(site);
     renderSiteImage(site);
     renderSiteProjects(site);
     renderRefCatList();
@@ -2119,6 +2369,7 @@
         var tab = btn.getAttribute("data-ptab");
         Array.prototype.forEach.call(document.querySelectorAll("[data-ptab]"), function(b){ b.classList.toggle("active", b === btn); });
         document.getElementById("profileOverviewPane").style.display = tab === "overview" ? "block" : "none";
+        document.getElementById("profileLeasePane").style.display = tab === "lease" ? "block" : "none";
         document.getElementById("profileBoardPane").style.display = tab === "board" ? "block" : "none";
       });
     });
@@ -3669,6 +3920,8 @@
     if(b.overdue.length) counts.push(b.overdue.length + " overdue");
     if(b.due.length) counts.push(b.due.length + " due today");
     if(b.chase.length) counts.push(b.chase.length + " to chase");
+    var leaseSoon = collectLeaseAlerts().filter(function(a){ return a.days <= 90; }).length;
+    if(leaseSoon) counts.push(leaseSoon + " lease deadline" + (leaseSoon === 1 ? "" : "s"));
 
     var html = '<div class="today-head">' +
       '<div class="today-date">' + escapeHtml(heading) + '</div>' +
@@ -3706,6 +3959,26 @@
 
     html += section("Next 7 days", "", b.week, todayRowMarkup);
     html += section("Compliance due", "Within 30 days, from each site's register.", b.compliance, todayComplianceRowMarkup);
+
+    /* Lease events sit last but carry the longest lead times — a break notice appears a
+       year out, because by the time it looks urgent it is already gone. */
+    var leaseDue = collectLeaseAlerts();
+    if(leaseDue.length){
+      html += '<div class="today-section"><span class="eyebrow">Lease &amp; estate (' + leaseDue.length + ')</span>' +
+        '<div class="today-note">Long lead times on purpose — a break notice shows a year ahead because missing it is permanent.</div>' +
+        leaseDue.map(function(a){
+          var tone = a.days <= 90 ? "var(--sev-red)" : "var(--sev-yellow)";
+          return '<div class="today-row today-row-flat" data-lease-site="' + escapeHtml(a.site) + '">' +
+            '<span class="today-sev" style="' + siteColorCss(a.site) + '"></span>' +
+            '<div class="today-main">' +
+              '<div class="today-title">' + escapeHtml(a.label) + ' ' + fmtDate(a.date) + '</div>' +
+              '<div class="today-meta">' + escapeHtml(a.site) + (a.detail ? ' · ' + escapeHtml(a.detail) : '') + '</div>' +
+            '</div>' +
+            '<span class="today-badge" style="color:' + tone + ';">' +
+              (a.days < 0 ? Math.abs(a.days) + "d ago" : a.days + "d") + '</span>' +
+          '</div>';
+        }).join("") + '</div>';
+    }
     html += section("No target date", "These won't appear anywhere time-based until they have one.", b.undated, todayRowMarkup);
 
     if(!b.overdue.length && !b.due.length && !b.chase.length && !b.week.length &&
@@ -3758,6 +4031,18 @@
         renderToday();
       });
     });
+    body.querySelectorAll("[data-lease-site]").forEach(function(row){
+      row.addEventListener("click", function(){
+        var site = row.getAttribute("data-lease-site");
+        document.getElementById("todayOverlay").classList.remove("open");
+        setSitesTab("site");
+        sitesOverlay.classList.add("open");
+        renderSiteProfile(site);
+        var tab = document.querySelector('[data-ptab="lease"]');
+        if(tab) tab.click();
+      });
+    });
+
     var voice = document.getElementById("todayVoiceBtn");
     if(voice) voice.addEventListener("click", startVoiceCapture);
 
@@ -5795,6 +6080,9 @@
   }
 
   function vComplianceAnswer(lower, site){
+    // "when does the Mayfair lease expire" is a lease question, not a compliance one —
+    // both share "expire", and this branch runs first
+    if(/\blease\b/.test(lower)) return null;
     if(!/\b(compliance|statutory|expiring|expire|expires|expiry|certificate|certificates|fra|loler|eicr|water hygiene|legionella|lift inspection|gas safety|due for renewal)\b/.test(lower)) return null;
     var horizon = 90;
     var h = lower.match(/(\d{1,3})\s*days?/);
@@ -5861,11 +6149,19 @@
     if(b.due.length) parts.push(b.due.length + " due today");
     if(b.chase.length) parts.push(b.chase.length + " needing a chase");
     if(b.compliance.length) parts.push(b.compliance.length + " compliance item(s) inside 30 days");
+    var lz = collectLeaseAlerts();
+    if(lz.length) parts.push(lz.length + " lease deadline(s) on the horizon, nearest " + lz[0].label.toLowerCase() + " at " + lz[0].site + " " + fmtDate(lz[0].date));
     if(!parts.length) return "Nothing overdue, due today, or needing a chase. The compliance registers are clear for the next 30 days too. Either you're on top of it, or there isn't much logged yet.";
-    var lead = (b.overdue[0] || b.due[0] || b.chase[0]);
-    return "Right now: " + parts.join(", ") + ". Start with \"" + lead.issue.title + "\" at " + lead.issue.site +
-      " (" + SEV_LABEL[severityBand(lead.issue)] + " priority" +
-      (lead.issue.assigned ? ", with " + lead.issue.assigned : ", unassigned") + "). Open Today for the full list.";
+    /* `parts` can be non-empty with no issue behind it — a portfolio with lease deadlines
+       and nothing overdue is exactly that, and dereferencing lead.issue there crashed the
+       whole reply. */
+    var lead = b.overdue[0] || b.due[0] || b.chase[0];
+    var start = (lead && lead.issue)
+      ? " Start with \"" + lead.issue.title + "\" at " + lead.issue.site +
+        " (" + SEV_LABEL[severityBand(lead.issue)] + " priority" +
+        (lead.issue.assigned ? ", with " + lead.issue.assigned : ", unassigned") + ")."
+      : "";
+    return "Right now: " + parts.join(", ") + "." + start + " Open Today for the full list.";
   }
 
   /* Where the honest line sits. Vector can produce the numbers behind a decision; it
@@ -5888,11 +6184,45 @@
       ". Ask me for spend, contractor performance, compliance due, or a trend and I'll put the numbers behind your decision.";
   }
 
+  /* Deliberately does NOT trigger on "landlord" alone — that's a site-details lookup and
+     the search handles it better. Lease questions name the lease. */
+  function vLeaseAnswer(lower, site){
+    if(!/\b(lease|leases|break clause|break option|break date|break notice|rent review|dilapidation\w*|dilaps|schedule of condition|repairing|service charge|rates appeal|rateable|security of tenure|1954|reversion|re-?gear)\b/.test(lower)) return null;
+
+    if(site){
+      var L = getLease(site);
+      var known = Object.keys(L).filter(function(k){ return String(L[k] || "").trim(); });
+      if(!known.length) return "No lease recorded for " + site + " yet. Open the site, go to the Lease tab and fill in the term, break and review dates — the notice deadline is worked out from them.";
+      var a = leaseAlerts(site), risks = leaseRisks(site);
+      var out = site + " — " +
+        (L.expiryDate ? "term expires " + fmtDate(L.expiryDate) : "no expiry recorded") +
+        (L.passingRent ? ", passing rent " + fmtMoney(L.passingRent) : "") +
+        (L.repairingObligation ? ", " + L.repairingObligation : "") + ".";
+      if(a.length) out += " Key dates: " + a.map(function(x){
+        return x.label + " " + fmtDate(x.date) + " (" + (x.days < 0 ? Math.abs(x.days) + "d ago" : "in " + x.days + "d") + ")";
+      }).join("; ") + ".";
+      if(risks.length) out += " Exposure: " + risks.length + " flag(s) — " + risks[0];
+      return out;
+    }
+
+    var all = collectLeaseAlerts();
+    if(!all.length){
+      var any = PROPERTY_ORDER.filter(function(s){ return Object.keys(getLease(s)).length; });
+      return any.length
+        ? "No lease deadlines fall inside their lead times right now. Leases recorded for: " + any.join(", ") + "."
+        : "No leases recorded yet. Open a site, go to the Lease tab, and put in the term, break and review dates — the notice deadlines get worked out from them.";
+    }
+    return all.length + " lease deadline(s) on the horizon: " + all.slice(0, 6).map(function(x){
+      return x.label + " at " + x.site + " " + fmtDate(x.date) + " (" + (x.days < 0 ? Math.abs(x.days) + "d ago" : "in " + x.days + "d") + ")";
+    }).join("; ") + ". Break notice deadlines are shown a year out on purpose — miss one and the break is gone for the rest of the term.";
+  }
+
   function vectorAnalytics(text, lower, site){
     return vBriefAnswer(lower)
         || vSpendAnswer(lower, site)
         || vContractorAnswer(lower, site)
         || vComplianceAnswer(lower, site)
+        || vLeaseAnswer(lower, site)
         || vTrendAnswer(lower, site)
         || vSiteRankAnswer(lower)
         || vAdviceAnswer(lower, site);

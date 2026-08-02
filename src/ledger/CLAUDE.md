@@ -558,3 +558,53 @@ blank page on a phone with no signal, which is precisely where they get used.
 Android widgets need the App Widget API, which needs a native APK. The manifest `widgets`
 field is **Windows 11 only**. Shortcuts plus the share target are as close as a PWA gets;
 anything more needs a TWA wrapper. Don't promise a widget.
+
+## Leases — occupier side, and it matters
+
+Michael leases **from** landlords. Every field and every flag is written from the tenant's
+position: a break clause is *his option to protect*, a repairing obligation is *his
+liability*, a review is *his downside*. A landlord-side module would hold the same dates
+and draw the opposite conclusions from them. If you extend this, keep the framing.
+
+Stored at `siteDetails[site].lease`, so it rides in `SITE_DETAILS_KEY` and is already
+covered by `BACKUP_KEYS` — no new key needed.
+
+### The derived date is the whole point
+
+`monthsBefore(breakDate, breakNoticeMonths)` produces **the date notice must be served**.
+That is typically 6–12 months earlier than the date written on the lease, it is the date
+that actually has to be acted on, and missing it forfeits the break for the rest of the
+term. Everything else in the module exists to support that number.
+
+`monthsBefore` **clamps the day rather than letting it roll forward**. Naive `setMonth`
+turns 31 March minus one month into 3 March — *later* than intended, and later is the
+direction that loses a break.
+
+Lead times are deliberately different per alert, not one horizon:
+
+| Alert | Lead | Why |
+|---|---|---|
+| Serve break notice | 365 days | the decision involves the Exec, and once past there is no remedy at all |
+| Lease expires | 540 days | renew/re-gear/exit, plus relocation lead time |
+| Rent review | 180 days | time to assemble evidence |
+| Rates appeal | 90 days | it's a form |
+
+Flattening these would either bury the break or spam the appeal.
+
+### `leaseRisks()` — exposure stated as exposure
+
+FRI with no schedule of condition, conditional breaks, upward-only reviews, uncapped
+service charge, consent needed for alterations, contracting out of the 1954 Act. These are
+the things that catch a tenant, and they are worded as what they cost, not as neutral
+facts. The pane says plainly it is not legal advice.
+
+### Integration traps
+
+- **`vComplianceAnswer` returns null when the query contains "lease".** Both branches
+  match "expire", and compliance runs first, so "when does the Mayfair lease expire" was
+  being answered from the compliance registers.
+- **`vBriefAnswer` must not assume an issue exists.** Adding lease deadlines to `parts`
+  means the brief can have content with nothing overdue behind it; dereferencing
+  `lead.issue` there crashed the entire reply. Guard it.
+- `vLeaseAnswer` deliberately does **not** trigger on "landlord" alone — that's a
+  site-details lookup and search answers it better.
