@@ -75,7 +75,12 @@ const readDigest = (page) => page.evaluate(() => new Promise((res) => {
 
   await page.goto(origin);
   await page.evaluate(() => navigator.serviceWorker.ready);
-  await page.evaluate((v) => localStorage.setItem('estatesLedger.issues.v1', v), JSON.stringify(SEED));
+  await page.evaluate((v) => {
+    localStorage.setItem('estatesLedger.issues.v1', v);
+    /* Pin the backup as just-taken. Otherwise a due backup adds itself to the digest and
+       every count below shifts depending on which day the suite happens to run. */
+    localStorage.setItem('estatesLedger.lastBackup.v1', new Date().toISOString());
+  }, JSON.stringify(SEED));
   await page.reload();
   await page.waitForTimeout(900);
 

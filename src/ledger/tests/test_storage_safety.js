@@ -128,7 +128,7 @@ const anIssue = { id: 'i1', title: 'Chiller 2 tripping', site: 'Mayfair', status
   await page3.reload();
   await page3.waitForTimeout(400);
   check('a 20-day-old backup brings the nudge back', await page3.isVisible('#backupNudge'));
-  check('it states the age', /20 days ago/.test(await page3.textContent('#backupNudgeText')),
+  check('it states the age', /20 day\(s\) ago|20 days ago/.test(await page3.textContent('#backupNudgeText')),
     (await page3.textContent('#backupNudgeText')).trim());
 
   // (e) dismiss is for this session only — it must return next time

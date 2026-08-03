@@ -647,6 +647,8 @@
     .today-acts{ order:4; margin-left:auto; }
   }
 
+  .bs-check{ display:flex; align-items:center; gap:8px; font-size:.84rem; color:var(--ink); cursor:pointer; margin-bottom:4px; }
+
   .inc-stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:8px; }
   .inc-stat{
     background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
@@ -776,6 +778,7 @@
           <button id="exportCsvBtn">Export report (.csv)</button>
           <button id="importBtn">Import backup (.json)</button>
           <button id="notifyToggleBtn">Daily reminders: off</button>
+          <button id="backupSettingsBtn">Scheduled backups…</button>
           <button id="themeToggleBtn">Toggle theme (dark / light / hybrid)</button>
           <div class="note" id="menuBackupNote">Everything — issues, notes, photos &amp; documents — lives only in this browser. Export backup regularly, or to move it to another device.</div>
         </div>
@@ -1013,6 +1016,13 @@
 </div>
 
 <!-- Confirm modal -->
+<div class="modal-overlay" id="backupSettingsOverlay">
+  <div class="modal modal-wide">
+    <div class="modal-head"><h2>Scheduled backups</h2><button class="icon-btn" id="backupSettingsCloseBtn" aria-label="Close">✕</button></div>
+    <div class="modal-body" id="backupSettingsBody"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="confirmOverlay">
   <div class="modal">
     <div class="modal-head"><h2 id="confirmTitle">Are you sure?</h2></div>
@@ -1182,6 +1192,8 @@
   var THEME_KEY = "estatesLedger.theme.v1";
   var ESTATE_METRICS_KEY = "estatesLedger.estateMetrics.v1";
   var LAST_BACKUP_KEY = "estatesLedger.lastBackup.v1";
+  var BACKUP_SCHEDULE_KEY = "estatesLedger.backupSchedule.v1";
+  var INCIDENTS_KEY = "estatesLedger.incidents.v1";
 
   var CATEGORIES = ["Fabric & Building","M&E / Plant","Health & Safety","FM / Dalkia SLA","Capital Project","Tender & Contract","Other"];
   var STATUSES = ["Open","In Progress","Awaiting Contractor","Resolved","Closed"];
@@ -1353,6 +1365,12 @@
   var contractors = load(CONTRACTORS_KEY, []);
   var emails = load(EMAILS_KEY, []);
   var contractorEmailMap = load(CONTRACTOR_EMAIL_KEY, {});
+  /* Loaded here, not in their own sections further down. renderAll() runs on first paint
+     and reaches both backupDue() and incidentAlerts(); a `var` assigned 4,000 lines later
+     is hoisted but undefined at that point, which crashes rather than degrading. */
+  var incidents = load(INCIDENTS_KEY, []);
+  var backupSchedule = load(BACKUP_SCHEDULE_KEY, { enabled: true, day: 5, hour: 15 });  // Friday afternoon
+  var DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   function rememberSite(name){
     name = (name || "").trim();
@@ -4158,11 +4176,19 @@
        investigation is a push you learn to ignore. */
     var incUrgent = incidentAlerts().filter(function(a){ return a.urgency <= 7; }).length;
     if(incUrgent) parts.push(incUrgent + " incident action" + (incUrgent === 1 ? "" : "s"));
+    // the phone's route to a Friday-afternoon reminder, since it can't write a file itself
+    if(backupDue()) parts.push("backup due");
+    /* But a due backup only *triggers* a notification for a few days after the slot. Left
+       unbounded, ignoring it for a month means thirty daily pushes about the same thing,
+       which is exactly how a reminder becomes something you swipe away without reading.
+       The in-app banner keeps nagging regardless — it just stops shouting. */
+    var backupPushable = backupDue() &&
+      (new Date() - lastScheduledSlot()) < 3 * 86400000;
     if(b.overdue.length) parts.push(b.overdue.length + " overdue");
     if(b.due.length) parts.push(b.due.length + " due today");
     if(b.chase.length) parts.push(b.chase.length + " to chase");
     return {
-      count: b.overdue.length + b.due.length + incUrgent,
+      count: b.overdue.length + b.due.length + incUrgent + (backupPushable ? 1 : 0),
       chase: b.chase.length,
       line: parts.join(" · "),
       lead: first && first.issue ? first.issue.title + " — " + first.issue.site : ""
@@ -4319,9 +4345,6 @@
      Reporting windows are the standard RIDDOR 2013 ones. They're stated in the UI as
      what they are — the standard windows — not as advice, and the app says to confirm
      with WorkNest. */
-  var INCIDENTS_KEY = "estatesLedger.incidents.v1";
-  var incidents = load(INCIDENTS_KEY, []);
-
   var INCIDENT_TYPES = ["Injury", "Near miss", "Dangerous occurrence", "Ill health",
                         "Violence or aggression", "Property damage", "Public safety"];
   var PERSON_TYPES = ["", "Employee", "Agency worker", "Contractor", "Member of the public", "Not applicable"];
@@ -5682,6 +5705,8 @@
   document.getElementById("notifyToggleBtn").addEventListener("click", toggleNotifications);
   renderNotifyToggle();
   maybeNotifyOnOpen();
+  // silent no-op unless a folder is set, its permission still holds, and one is due
+  runAutoBackupIfDue();
 
   document.getElementById("themeToggleBtn").addEventListener("click", function(){
     var current = document.documentElement.getAttribute("data-theme");
@@ -5732,6 +5757,142 @@
     }
   }
 
+  /* ---- scheduled backups ----
+
+     Two halves, because only one of them works everywhere.
+
+     THE SCHEDULE works on any device: a weekly slot (Friday afternoon by default), and
+     the app knows when it's passed without a backup. That drives the banner and the
+     notification.
+
+     THE AUTOMATIC WRITE needs the File System Access API — `showDirectoryPicker` — which
+     is **Chrome desktop only**. Chrome on Android does not expose it, and there is no
+     workaround: a web app on Android cannot write to a folder unattended. So on the phone
+     this is a reliable Friday prompt plus a one-tap export to Downloads, and the UI says
+     exactly that rather than implying an automation that will never fire.
+
+     Everything is feature-detected, so the same build does the right thing on both. */
+  function autoBackupSupported(){ return typeof window.showDirectoryPicker === "function"; }
+
+  /* The most recent time the scheduled slot came round. If today IS the day but the hour
+     hasn't arrived, the live slot is last week's — otherwise a Friday-morning open would
+     report the afternoon backup as already overdue. */
+  function lastScheduledSlot(){
+    var now = new Date();
+    var slot = new Date(now.getFullYear(), now.getMonth(), now.getDate(), backupSchedule.hour, 0, 0, 0);
+    slot.setDate(slot.getDate() - ((now.getDay() - backupSchedule.day + 7) % 7));
+    if(slot > now) slot.setDate(slot.getDate() - 7);
+    return slot;
+  }
+
+  function lastBackupISO(){
+    try { return localStorage.getItem(LAST_BACKUP_KEY) || ""; } catch(e){ return ""; }
+  }
+
+  function backupDue(){
+    if(!backupSchedule.enabled) return false;
+    if(!issues.length && !incidents.length) return false;   // nothing to lose yet
+    var last = lastBackupISO();
+    return !last || new Date(last) < lastScheduledSlot();
+  }
+
+  /* The handle rides in the digest store rather than earning its own — it's a single
+     record, and another object store means another IndexedDB version bump that sw.js
+     would have to match. FileSystemDirectoryHandle is structured-cloneable, so it
+     survives being stored; the PERMISSION does not, and has to be re-checked each load. */
+  function putBackupDir(handle){
+    backupDirHandle = handle;
+    return openDB().then(function(db){
+      return new Promise(function(resolve){
+        var tx = db.transaction("digest", "readwrite");
+        tx.objectStore("digest").put({ id: "backupDir", handle: handle });
+        tx.oncomplete = function(){ resolve(true); };
+        tx.onerror = function(){ resolve(false); };
+      });
+    }).catch(function(){ return false; });
+  }
+  /* Kept in memory as well as in IndexedDB. Storing it can fail — quota, a private
+     window, a browser that refuses to clone the handle — and when it does, the folder the
+     user just picked should still work for this session rather than silently doing
+     nothing until they notice. */
+  var backupDirHandle = null;
+
+  function getBackupDir(){
+    if(backupDirHandle) return Promise.resolve(backupDirHandle);
+    return openDB().then(function(db){
+      return new Promise(function(resolve){
+        var g = db.transaction("digest").objectStore("digest").get("backupDir");
+        g.onsuccess = function(){
+          backupDirHandle = g.result ? g.result.handle : null;
+          resolve(backupDirHandle);
+        };
+        g.onerror = function(){ resolve(null); };
+      });
+    }).catch(function(){ return null; });
+  }
+
+  function buildBackupPayload(){
+    var base = {
+      formatVersion: 2, exportedAt: new Date().toISOString(),
+      issues: issues, sites: sites, contractors: contractors, emails: emails,
+      localState: collectLocalState()
+    };
+    return idbAll().then(function(files){
+      return Promise.all(files.map(function(f){
+        return blobToBase64(f.blob).then(function(b64){
+          return {id:f.id, issueId:f.issueId, kind:f.kind, site:f.site, name:f.name,
+                  type:f.type, size:f.size, addedAt:f.addedAt, dataBase64:b64};
+        });
+      })).then(function(fileRecords){ base.files = fileRecords; return base; });
+    }).catch(function(){
+      // deliberately leaves `files` off — the importer treats absent as "don't touch"
+      return base;
+    });
+  }
+
+  function writeBackupToFolder(handle, text){
+    var name = "estates-ledger-" + todayISO() + ".json";
+    return handle.getFileHandle(name, { create: true })
+      .then(function(fh){ return fh.createWritable(); })
+      .then(function(w){ return Promise.resolve(w.write(text)).then(function(){ return w.close(); }); })
+      .then(function(){ return name; });
+  }
+
+  function chooseBackupFolder(){
+    if(!autoBackupSupported()){
+      showToast("This browser can't write to a folder — Chrome on Android doesn't support it. You'll get the Friday reminder and a one-tap export instead.");
+      return;
+    }
+    window.showDirectoryPicker({ mode: "readwrite", startIn: "documents" }).then(function(handle){
+      return putBackupDir(handle).then(function(){
+        showToast("Automatic backups will save into “" + handle.name + "”.");
+        renderBackupSettings();
+        return runAutoBackupIfDue(true);
+      });
+    }).catch(function(){ /* user cancelled the picker — nothing to say */ });
+  }
+
+  /* Runs on load. Silent when it can't act: no folder, no permission, or not due. The
+     permission check matters — a stored handle whose permission has lapsed needs a user
+     gesture to re-grant, so in that case the banner does the asking instead. */
+  function runAutoBackupIfDue(force){
+    if(!autoBackupSupported()) return Promise.resolve(false);
+    if(!force && !backupDue()) return Promise.resolve(false);
+    return getBackupDir().then(function(handle){
+      if(!handle) return false;
+      return handle.queryPermission({ mode: "readwrite" }).then(function(state){
+        if(state !== "granted") return false;
+        return buildBackupPayload()
+          .then(function(p){ return writeBackupToFolder(handle, JSON.stringify(p)); })
+          .then(function(name){
+            markBackupTaken();
+            showToast("Backed up automatically to " + name + ".");
+            return true;
+          });
+      });
+    }).catch(function(){ return false; });
+  }
+
   /* ---- backup freshness ----
      Written straight to localStorage rather than through save(), so it still records
      when storage is halted — a backup taken during an emergency is exactly the one worth
@@ -5755,21 +5916,27 @@
     var el = document.getElementById("backupNudge");
     var note = document.getElementById("menuBackupNote");
     var days = daysSinceBackup();
+    var due = backupDue();
 
     if(note){
-      note.textContent = days === null
-        ? "Never backed up. Everything — issues, notes, photos & documents — lives only in this browser."
-        : "Last backup " + (days === 0 ? "today" : days === 1 ? "yesterday" : days + " days ago") +
-          ". Everything lives only in this browser.";
+      note.textContent = (days === null
+        ? "Never backed up."
+        : "Last backup " + (days === 0 ? "today" : days === 1 ? "yesterday" : days + " days ago") + ".") +
+        (backupSchedule.enabled ? " Scheduled " + DAY_NAMES[backupSchedule.day] + "s." : "") +
+        " Everything lives only in this browser.";
     }
     if(!el) return;
-    // nothing to lose yet, or already told them this session
-    if(backupNudgeDismissed || !issues.length || (days !== null && days < BACKUP_NUDGE_DAYS)){
+
+    var stale = days === null || days >= BACKUP_NUDGE_DAYS;   // fallback when scheduling is off
+    if(backupNudgeDismissed || (!issues.length && !incidents.length) || (!due && !stale)){
       el.style.display = "none"; return;
     }
-    document.getElementById("backupNudgeText").textContent = days === null
-      ? "You have never exported a backup. This ledger exists only in this browser."
-      : "Last backup was " + days + " days ago. This ledger exists only in this browser.";
+    document.getElementById("backupNudgeText").textContent = due
+      ? (DAY_NAMES[backupSchedule.day] + " backup is due" +
+         (days === null ? " — you have never exported one." : " — last one was " + days + " day(s) ago."))
+      : (days === null
+          ? "You have never exported a backup. This ledger exists only in this browser."
+          : "Last backup was " + days + " days ago. This ledger exists only in this browser.");
     el.style.display = "flex";
   }
 
@@ -5850,6 +6017,7 @@
     PM_BOARD_KEY,          // imported Project Board snapshot
     THEME_KEY, CHASE_RULES_KEY,
     INCIDENTS_KEY,         // accidents, near misses, RIDDOR clocks
+    BACKUP_SCHEDULE_KEY,
     LAST_BACKUP_KEY        // so a restored device knows how fresh the file it came from was
   ];
   // Vector's chat history is deliberately excluded — it's transient and can be noisy.
@@ -5870,32 +6038,81 @@
     });
   }
 
+  /* One payload builder, two destinations: the download here, and the automatic folder
+     write. They must not drift — a backup that differs depending on how it was taken is
+     a restore surprise waiting to happen. */
   function exportBackup(){
     showToast("Preparing backup…");
-    idbAll().then(function(files){
-      return Promise.all(files.map(function(f){
-        return blobToBase64(f.blob).then(function(b64){
-          return {id:f.id, issueId:f.issueId, kind:f.kind, site:f.site, name:f.name, type:f.type, size:f.size, addedAt:f.addedAt, dataBase64:b64};
-        });
-      }));
-    }).then(function(fileRecords){
-      var payload = {
-        formatVersion: 2,
-        exportedAt: new Date().toISOString(),
-        issues: issues, sites: sites, contractors: contractors, emails: emails,  // v1 shape, kept so older builds can still read a new backup
-        localState: collectLocalState(),
-        files: fileRecords
-      };
+    buildBackupPayload().then(function(payload){
       offerDownload("estates-ledger-backup.json", "application/json", JSON.stringify(payload), markBackupTaken);
-    }).catch(function(){
-      offerDownload("estates-ledger-backup.json", "application/json", JSON.stringify({
-        formatVersion: 2, exportedAt: new Date().toISOString(),
-        issues: issues, sites: sites, contractors: contractors, emails: emails,
-        localState: collectLocalState()
-      }), markBackupTaken);
-      showToast("Backup saved without attachments — couldn't read local file storage.");
+      if(!payload.files) showToast("Backup saved without attachments — couldn't read local file storage.");
     });
   }
+
+  function renderBackupSettings(){
+    var body = document.getElementById("backupSettingsBody");
+    if(!body) return;
+    var supported = autoBackupSupported();
+    var last = lastBackupISO();
+
+    var html = '<div class="field"><label for="bs-day">Back up every</label><select id="bs-day">' +
+      DAY_NAMES.map(function(d, i){
+        return '<option value="' + i + '"' + (i === backupSchedule.day ? " selected" : "") + '>' + d + '</option>';
+      }).join("") + '</select></div>';
+    html += '<div class="field"><label for="bs-hour">From</label><select id="bs-hour">' +
+      [[9, "Morning (9am)"], [12, "Midday"], [15, "Afternoon (3pm)"], [17, "End of day (5pm)"]].map(function(h){
+        return '<option value="' + h[0] + '"' + (h[0] === backupSchedule.hour ? " selected" : "") + '>' + h[1] + '</option>';
+      }).join("") + '</select></div>';
+    html += '<label class="bs-check"><input type="checkbox" id="bs-enabled"' + (backupSchedule.enabled ? " checked" : "") + '> Remind me on that schedule</label>';
+
+    html += '<div class="chase-note" style="margin-top:14px;">' +
+      (supported
+        ? "This browser can write backups to a folder on its own. Pick one and it saves without asking, on the schedule above."
+        : "<strong>This device can't write backups to a folder automatically.</strong> Chrome on Android doesn't allow it — no web app can. " +
+          "What you get instead: on the day, a banner in the app and a line in your daily reminder, and one tap to export to Downloads. " +
+          "Set a folder on a desktop Chrome if you want the hands-off version.") +
+      '</div>';
+
+    if(supported){
+      html += '<button class="btn btn-primary" id="bs-folder" style="width:100%;">Choose backup folder</button>';
+    }
+    html += '<div class="today-note" style="margin-top:12px;">' +
+      (last ? "Last backup " + new Date(last).toLocaleString("en-GB") + "." : "No backup taken yet.") +
+      (backupDue() ? " <strong>One is due now.</strong>" : "") +
+      " Old backup files are never deleted for you — clear them out yourself when you want to." +
+      '</div>';
+    html += '<button class="btn btn-primary" id="bs-now" style="width:100%;margin-top:10px;">Back up now</button>';
+    body.innerHTML = html;
+
+    function saveSchedule(){
+      backupSchedule = {
+        enabled: document.getElementById("bs-enabled").checked,
+        day: parseInt(document.getElementById("bs-day").value, 10),
+        hour: parseInt(document.getElementById("bs-hour").value, 10)
+      };
+      save(BACKUP_SCHEDULE_KEY, backupSchedule);
+      renderBackupNudge();
+      renderBackupSettings();
+    }
+    ["bs-day", "bs-hour", "bs-enabled"].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) el.addEventListener("change", saveSchedule);
+    });
+    var folder = document.getElementById("bs-folder");
+    if(folder) folder.addEventListener("click", chooseBackupFolder);
+    document.getElementById("bs-now").addEventListener("click", function(){
+      document.getElementById("backupSettingsOverlay").classList.remove("open");
+      exportBackup();
+    });
+  }
+
+  document.getElementById("backupSettingsBtn").addEventListener("click", function(){
+    document.getElementById("backupSettingsOverlay").classList.add("open");
+    renderBackupSettings();
+  });
+  document.getElementById("backupSettingsCloseBtn").addEventListener("click", function(){
+    document.getElementById("backupSettingsOverlay").classList.remove("open");
+  });
 
   document.getElementById("exportJsonBtn").addEventListener("click", exportBackup);
   document.getElementById("storageAlertExportBtn").addEventListener("click", exportBackup);

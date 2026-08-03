@@ -692,3 +692,48 @@ push that fires for a routine open investigation is a push you learn to ignore.
 **`vectorHandle`'s "how many" counter runs before `vectorAnalytics`** and only knows about
 issues, so it's guarded against incident words — otherwise "how many incidents this year"
 confidently answered with the open *issue* count.
+
+## Scheduled backups — and what genuinely isn't possible
+
+Two halves, and **only one works on Android**, which is Michael's device.
+
+**The schedule** works everywhere. `lastScheduledSlot()` returns the most recent
+occurrence of the chosen weekday/hour; `backupDue()` is true when the last backup predates
+it. Defaults to **Friday afternoon**. If today is the day but the hour hasn't come round,
+the live slot is *last* week's — otherwise a Friday-morning open reports the afternoon
+backup as already overdue.
+
+**The automatic write** needs `showDirectoryPicker` (File System Access API), which is
+**Chrome desktop only**. Chrome on Android does not expose it and there is no workaround —
+a web app on Android cannot write to a folder unattended. Everything is feature-detected;
+the unsupported branch says so plainly and offers no button it can't honour. **Don't
+"add Android support" for this — it isn't a gap, it's a platform limit.** Note headless
+Chromium *does* expose the API, so `test_backup_schedule.js` deletes it to reach the
+phone's branch at all.
+
+So on the phone the delivery is: on the day, a banner plus a line in the daily
+notification, and one tap to export to Downloads.
+
+### Details worth keeping
+
+- **`backupDirHandle` is cached in memory as well as IndexedDB.** Storing it can fail, and
+  when it does the folder the user just picked should still work for the session.
+- **A lapsed permission must not fail silently.** `queryPermission` returning anything but
+  `granted` means no write; re-granting needs a user gesture, so the banner does the
+  asking. `test_backup_schedule.js` covers this.
+- **`buildBackupPayload()` is shared** by the download and the folder write. A backup that
+  differs depending on how it was taken is a restore surprise waiting to happen. Its
+  failure path deliberately omits `files` — see the import section.
+- **A due backup only *triggers* a notification for 3 days after the slot.** Unbounded, a
+  month of ignoring it is thirty identical pushes, which is how a reminder becomes
+  something you swipe away. The in-app banner keeps nagging; it just stops shouting.
+- **Old backup files are never deleted automatically**, and the UI says so. Silently
+  pruning someone's backups is the last thing this app should do.
+
+### Initialisation order
+
+`incidents` and `backupSchedule` are loaded at the **top** with the other state, not in
+their own sections. `renderAll()` runs on first paint and reaches `incidentAlerts()` and
+`backupDue()`; a `var` assigned four thousand lines later is hoisted but `undefined` at
+that point, which crashes rather than degrading. Any new module-level state that
+`renderAll` can reach belongs in that top block.
