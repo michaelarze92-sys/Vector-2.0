@@ -53,15 +53,31 @@ Qualifications held: NEBOSH General Certificate, IOSH membership, a recognised F
 
 Format is RAG-coloured throughout (GREEN/AMBER/RED against target), one row per venue per metric, action-owner named for accountability.
 
-**Leases — tenant side (next build):** Michael leases FROM landlords; the lease module must
+**Systems actually in place at MG (corrected — supersedes earlier notes):**
+- **Aurora CAFM** — holds every job and every PPM. *Whose licence (MG's or Dalkia's) is not
+  yet established, and it matters: it decides whether the Ledger is a personal triage layer
+  on a corporate system, or an independent record of a contractor's performance.*
+- **WorkNest portal** — compliance.
+- **SharePoint** — all lease documents (documents, not dated alarms).
+
+An earlier note here said MG had no central CAFM and relied on contractor portals. That was
+wrong. **The Ledger must not duplicate Aurora's job/PPM records** — two sources of truth
+diverge, and then Michael is presenting Board numbers that don't match the system. What
+still has no home elsewhere: daily triage and the chase list, lease *notice deadlines*
+(SharePoint stores the documents, not the derived action dates), on-site capture, incident
+RIDDOR clocks, and assembly of the Board SHE report across all three systems.
+
+Next step is imports, not more capture: Aurora and WorkNest exports, formats to be
+confirmed with the contractor.
+
+**Leases — tenant side:** Michael leases FROM landlords; the lease module must
 be written from the occupier's perspective, not the landlord's. That means: break clauses as
 *his option to protect* (with the notice period, so the action date is months before the
 break date), dilapidations exposure, schedule of condition, upward-only review risk, service
 charge caps and challenge rights, landlord consent for alterations (critical for gaming floor
-refits), FRI repairing liability, and rates appeal deadlines. MG currently has no central
-CAFM — they rely on contractor portals such as Dalkia's — so no corporate system is coming
-that would make this redundant, and the lease dates most likely sit with the Managing Agent,
-who doesn't carry the cost of a missed break.
+refits), FRI repairing liability, and rates appeal deadlines. Lease documents sit in SharePoint, which stores files rather than
+tracking derived action dates — so the notice-deadline calculation still has no home unless
+someone has built one. Confirm before assuming.
 
 **Upcoming tender deadlines:**
 - _(none logged yet)_
