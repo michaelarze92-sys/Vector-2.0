@@ -643,3 +643,52 @@ A Project Board backup fed to the Ledger's restore has no `issues`, so the resto
 faithfully replaced the entire estate with nothing. The confirm did say "Importing 0
 issue(s)" — nowhere near loud enough. Both wrong-file cases are now refused before any
 confirm is offered, and the Project Board one names the control that does the right thing.
+
+## Incidents and RIDDOR
+
+An incident is **not** an issue, and mixing them was the gap this closes: a slip on the
+gaming floor and a broken door handle were the same record type, so nothing knew that one
+of them starts a statutory clock. Separate store (`INCIDENTS_KEY`, in `BACKUP_KEYS`), its
+own overlay, its own list — deliberately not a category on `issues`, or every issue
+analytic would silently average incidents in with faults.
+
+### Two limits that are the point, not caveats
+
+- **The app does not decide reportability.** That is Michael's call with WorkNest. What it
+  does is make the clock visible once the call is made. The intro text says so. Don't
+  "improve" this into an automatic determination.
+- **Person fields are deliberately minimal** — initials or role, never names, and the
+  placeholder says so. Full personal and medical detail belongs in MG's formal system, not
+  in a browser store on a personal phone.
+
+### The clocks
+
+`RIDDOR_KINDS` carries `days` (window to submit the written report, counted from the
+**incident date**) and `immediate` (also notifiable without delay by the quickest
+practicable means — in practice a phone call first). Standard RIDDOR 2013 windows:
+10 days for fatalities, specified injuries, dangerous occurrences, disease and non-workers
+taken to hospital; **15 days for over-7-day incapacitation**. `riddorClock()` returns null
+once `riddorReportedDate` is set — a reported incident has no clock left to run.
+
+An overdue report renders as **"4d OVERDUE"**, not a negative number. Silent negatives are
+how a deadline stops registering as a deadline.
+
+### The alert nobody asks for
+
+`incidentAlerts()` includes incidents whose RIDDOR status is still `unassessed`. **"We
+never decided" is how a reporting duty gets missed**, and unlike an overdue report it
+doesn't announce itself. It sorts to the top alongside genuinely overdue reports.
+
+One incident can legitimately raise two alerts — an overdue report *and* a stale
+investigation. That's two different actions, not a duplicate.
+
+### Integration
+
+Incidents sit **above** overdue jobs in Today. A reporting duty with a regulator attached
+outranks a leaking roof. They also feed the Today headline, the daily brief, and the
+notification digest — but only alerts with `urgency <= 7` reach a notification, because a
+push that fires for a routine open investigation is a push you learn to ignore.
+
+**`vectorHandle`'s "how many" counter runs before `vectorAnalytics`** and only knows about
+issues, so it's guarded against incident words — otherwise "how many incidents this year"
+confidently answered with the open *issue* count.

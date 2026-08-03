@@ -647,6 +647,17 @@
     .today-acts{ order:4; margin-left:auto; }
   }
 
+  .inc-stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:8px; }
+  .inc-stat{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:10px; text-align:center;
+  }
+  .inc-stat .n{ display:block; font-family:'Plex Cond',sans-serif; font-weight:700; font-size:1.3rem; color:var(--ink); }
+  .inc-stat .l{ display:block; font-size:.66rem; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-dim); margin-top:2px; }
+  .inc-form-foot{ display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .lease-grid .field.wide{ grid-column:1 / -1; }
+  @media (max-width:480px){ .inc-stats{ grid-template-columns:repeat(2,1fr); } }
+
   .lease-alerts, .lease-risks{ margin-bottom:18px; }
   .lease-alert{
     display:flex; align-items:center; gap:10px; padding:10px 12px; margin-top:8px;
@@ -752,6 +763,7 @@
     <div class="topbar-actions">
       <button class="btn btn-sm btn-primary" id="todayBtn">Today</button>
       <button class="btn btn-sm" id="walkBtn" title="Log several faults at one venue">Walk</button>
+      <button class="btn btn-sm" id="incidentsBtn" title="Accidents, near misses and RIDDOR">Incidents</button>
       <button class="icon-btn" id="voiceCaptureBtn" title="Log an issue by voice" aria-label="Log an issue by voice">🎤</button>
       <button class="btn btn-sm" id="sitesBtn">Sites</button>
       <button class="btn btn-sm" id="reportsBtn">Reports</button>
@@ -1076,6 +1088,18 @@
       <button class="icon-btn" id="todayCloseBtn" aria-label="Close">✕</button>
     </div>
     <div class="modal-body" id="todayModalBody"></div>
+  </div>
+</div>
+
+<!-- Incidents: a separate record type because a slip on the gaming floor starts a
+     statutory clock and a broken door handle doesn't. -->
+<div class="modal-overlay full" id="incidentOverlay">
+  <div class="modal modal-full">
+    <div class="modal-head">
+      <h2 id="incidentTitle">Incidents</h2>
+      <button class="icon-btn" id="incidentCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="incidentBody"></div>
   </div>
 </div>
 
@@ -3917,6 +3941,8 @@
     var heading = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 
     var counts = [];
+    var incCount = incidentAlerts().length;
+    if(incCount) counts.push(incCount + " incident action" + (incCount === 1 ? "" : "s"));
     if(b.overdue.length) counts.push(b.overdue.length + " overdue");
     if(b.due.length) counts.push(b.due.length + " due today");
     if(b.chase.length) counts.push(b.chase.length + " to chase");
@@ -3937,6 +3963,20 @@
         (note ? '<div class="today-note">' + note + '</div>' : '') +
         rows.map(markup).join("") +
       '</div>';
+    }
+
+    /* Above overdue on purpose. A reporting duty with a statutory deadline outranks a
+       leaking roof, and it is the one thing here with a regulator attached. */
+    var incAlerts = incidentAlerts();
+    if(incAlerts.length){
+      html += '<div class="today-section"><span class="eyebrow">Incidents &amp; RIDDOR (' + incAlerts.length + ')</span>' +
+        incAlerts.map(function(a){
+          var tone = a.urgency <= 3 ? "var(--sev-red)" : "var(--sev-yellow)";
+          return '<div class="today-row" data-incident-id="' + a.inc.id + '">' +
+            '<span class="today-sev" style="background:' + tone + ';"></span>' +
+            '<div class="today-main"><div class="today-title">' + escapeHtml(a.label) + '</div>' +
+            '<div class="today-meta">' + escapeHtml(a.detail) + '</div></div></div>';
+        }).join("") + '</div>';
     }
 
     html += section("Overdue", "", b.overdue, todayRowMarkup);
@@ -4031,6 +4071,15 @@
         renderToday();
       });
     });
+    body.querySelectorAll("[data-incident-id]").forEach(function(row){
+      row.addEventListener("click", function(){
+        document.getElementById("todayOverlay").classList.remove("open");
+        editingIncidentId = row.getAttribute("data-incident-id");
+        document.getElementById("incidentOverlay").classList.add("open");
+        renderIncidents();
+      });
+    });
+
     body.querySelectorAll("[data-lease-site]").forEach(function(row){
       row.addEventListener("click", function(){
         var site = row.getAttribute("data-lease-site");
@@ -4104,11 +4153,16 @@
     var b = collectToday();
     var first = b.overdue[0] || b.due[0] || b.chase[0] || null;
     var parts = [];
+    /* Only the urgent incident actions reach a notification — a reporting deadline inside
+       a week, or an unassessed incident. A push that fires for a routine open
+       investigation is a push you learn to ignore. */
+    var incUrgent = incidentAlerts().filter(function(a){ return a.urgency <= 7; }).length;
+    if(incUrgent) parts.push(incUrgent + " incident action" + (incUrgent === 1 ? "" : "s"));
     if(b.overdue.length) parts.push(b.overdue.length + " overdue");
     if(b.due.length) parts.push(b.due.length + " due today");
     if(b.chase.length) parts.push(b.chase.length + " to chase");
     return {
-      count: b.overdue.length + b.due.length,
+      count: b.overdue.length + b.due.length + incUrgent,
       chase: b.chase.length,
       line: parts.join(" · "),
       lead: first && first.issue ? first.issue.title + " — " + first.issue.site : ""
@@ -4246,6 +4300,305 @@
       });
     }).catch(function(){ showToast("Couldn't request notification permission."); });
   }
+
+  /* ---------------- incidents ----------------
+
+     An incident is not an issue and mixing them was the gap this closes: a slip on the
+     gaming floor and a broken door handle were the same record type, so nothing knew
+     that one of them starts a statutory clock.
+
+     Two deliberate limits:
+
+     1. The app does NOT decide whether something is RIDDOR reportable. That's Michael's
+        call with WorkNest. What it does is make the clock visible once the call is made,
+        and refuse to let an unassessed incident sit quietly.
+     2. Person fields are deliberately minimal — initials or role, not names. Full
+        personal and medical detail belongs in MG's formal system, not in a browser store
+        on a personal phone. The form says so rather than relying on discipline.
+
+     Reporting windows are the standard RIDDOR 2013 ones. They're stated in the UI as
+     what they are — the standard windows — not as advice, and the app says to confirm
+     with WorkNest. */
+  var INCIDENTS_KEY = "estatesLedger.incidents.v1";
+  var incidents = load(INCIDENTS_KEY, []);
+
+  var INCIDENT_TYPES = ["Injury", "Near miss", "Dangerous occurrence", "Ill health",
+                        "Violence or aggression", "Property damage", "Public safety"];
+  var PERSON_TYPES = ["", "Employee", "Agency worker", "Contractor", "Member of the public", "Not applicable"];
+  var INVESTIGATION_STATES = ["Not started", "In progress", "Actions outstanding", "Closed"];
+
+  /* days = the window to submit the written report, counted from the incident date.
+     immediate = must also be notified without delay by the quickest practicable means,
+     which in practice means a phone call before the written report. */
+  var RIDDOR_KINDS = [
+    { key: "unassessed", label: "Not yet assessed", days: null },
+    { key: "none",       label: "Not reportable",   days: null },
+    { key: "fatality",   label: "Fatality",                         days: 10, immediate: true },
+    { key: "specified",  label: "Specified injury",                 days: 10, immediate: true },
+    { key: "over7",      label: "Over-7-day incapacitation",        days: 15 },
+    { key: "dangerous",  label: "Dangerous occurrence",             days: 10, immediate: true },
+    { key: "disease",    label: "Occupational disease",             days: 10 },
+    { key: "nonworker",  label: "Non-worker taken to hospital",     days: 10, immediate: true }
+  ];
+  function riddorKind(key){
+    return RIDDOR_KINDS.find(function(k){ return k.key === (key || "unassessed"); }) || RIDDOR_KINDS[0];
+  }
+
+  function incidentRef(dateISO){
+    var year = (dateISO || todayISO()).slice(0, 4);
+    var n = incidents.filter(function(i){ return (i.ref || "").indexOf("INC-" + year) === 0; }).length + 1;
+    return "INC-" + year + "-" + String(n).padStart(3, "0");
+  }
+
+  /* The whole reason this module exists. Returns null when there's no clock to run —
+     either it isn't reportable, or it's already been reported. */
+  function riddorClock(inc){
+    var kind = riddorKind(inc.riddor);
+    if(kind.days === null) return null;
+    if(inc.riddorReportedDate) return { reported: true, on: inc.riddorReportedDate, kind: kind };
+    var due = addDays(inc.date || todayISO(), kind.days);
+    return { reported: false, due: due, days: daysUntil(due), kind: kind };
+  }
+
+  /* Anything the person running SHE should not be able to lose track of. An unassessed
+     incident is on this list too — "we never decided" is how a reporting duty gets
+     missed, and it doesn't announce itself. */
+  function incidentAlerts(){
+    var out = [];
+    incidents.forEach(function(inc){
+      if(inc.investigationStatus === "Closed" && inc.riddorReportedDate) return;
+      var kind = riddorKind(inc.riddor);
+      if(kind.key === "unassessed"){
+        var age = -daysUntil(inc.date || todayISO());
+        out.push({ inc: inc, urgency: age >= 2 ? 0 : 1, days: 0,
+          label: "RIDDOR not assessed", detail: inc.ref + " · " + inc.site + " · " + age + " day(s) since the incident" });
+        return;
+      }
+      var clock = riddorClock(inc);
+      if(clock && !clock.reported){
+        out.push({ inc: inc, urgency: clock.days, days: clock.days,
+          label: (clock.days < 0 ? "RIDDOR report OVERDUE" : "RIDDOR report due"),
+          detail: inc.ref + " · " + inc.site + " · " + kind.label +
+                  (kind.immediate ? " · also notifiable without delay" : "") });
+      }
+      if(inc.investigationStatus && inc.investigationStatus !== "Closed" && inc.date){
+        var open = -daysUntil(inc.date);
+        if(open >= 14) out.push({ inc: inc, urgency: 900 - open, days: open,
+          label: "Investigation still open", detail: inc.ref + " · " + inc.site + " · " + open + " days since the incident" });
+      }
+    });
+    out.sort(function(a, b){ return a.urgency - b.urgency; });
+    return out;
+  }
+
+  function incidentStats(){
+    var now = parseISO(todayISO()), y = now.getFullYear(), m = now.getMonth();
+    var thisFrom = toISO(new Date(y, m, 1)),
+        lastFrom = toISO(new Date(y, m - 1, 1)), lastTo = toISO(new Date(y, m, 0)),
+        yearFrom = toISO(new Date(y, 0, 1));
+    function count(from, to, fn){
+      return incidents.filter(function(i){
+        return i.date && i.date >= from && i.date <= to && (!fn || fn(i));
+      }).length;
+    }
+    var reportable = function(i){ return (riddorKind(i.riddor).days !== null); };
+    return {
+      thisMonth: count(thisFrom, todayISO()),
+      lastMonth: count(lastFrom, lastTo),
+      ytd: count(yearFrom, todayISO()),
+      riddorYtd: count(yearFrom, todayISO(), reportable),
+      nearMiss: count(yearFrom, todayISO(), function(i){ return i.type === "Near miss"; }),
+      openInvestigations: incidents.filter(function(i){ return i.investigationStatus && i.investigationStatus !== "Closed"; }).length,
+      unassessed: incidents.filter(function(i){ return riddorKind(i.riddor).key === "unassessed"; }).length
+    };
+  }
+
+  var editingIncidentId = null;
+
+  var INCIDENT_FIELDS = [
+    ["date", "Date of incident", "date", ""],
+    ["time", "Time", "time", ""],
+    ["site", "Venue", "select", PROPERTY_ORDER],
+    ["type", "Type", "select", INCIDENT_TYPES],
+    ["location", "Where in the building", "text", "e.g. gents WC, ground floor"],
+    ["personType", "Person affected", "select", PERSON_TYPES],
+    ["personRef", "Initials or role", "text", "Initials or role only — e.g. JS, or Duty Manager. Not full names"],
+    ["description", "What happened", "textarea", "Sequence of events, factually"],
+    ["injuryDetail", "Injury or outcome", "textarea", "Nature of injury or damage — keep medical detail in the formal system"],
+    ["immediateAction", "Immediate action taken", "textarea", "Made safe, first aid, area closed…"],
+    ["riddor", "RIDDOR assessment", "riddor", ""],
+    ["riddorReportedDate", "Reported to HSE on", "date", ""],
+    ["riddorRef", "HSE reference", "text", ""],
+    ["investigationStatus", "Investigation", "select", INVESTIGATION_STATES],
+    ["rootCause", "Root cause", "textarea", ""],
+    ["actions", "Actions and close-out", "textarea", "What was changed so it doesn't recur"],
+    ["reportedBy", "Reported by", "text", ""]
+  ];
+
+  function incidentFieldMarkup(f, val){
+    var id = "in-" + f[0], label = escapeHtml(f[1]);
+    if(f[2] === "riddor"){
+      return '<div class="field"><label for="' + id + '">' + label + '</label><select id="' + id + '">' +
+        RIDDOR_KINDS.map(function(k){
+          return '<option value="' + k.key + '"' + (k.key === (val || "unassessed") ? " selected" : "") + '>' +
+            escapeHtml(k.label) + (k.days ? " — report within " + k.days + " days" : "") + '</option>';
+        }).join("") + '</select></div>';
+    }
+    if(f[2] === "select"){
+      return '<div class="field"><label for="' + id + '">' + label + '</label><select id="' + id + '">' +
+        (f[3][0] === "" ? "" : '<option value=""></option>') +
+        f[3].map(function(o){
+          return '<option value="' + escapeHtml(o) + '"' + (o === val ? " selected" : "") + '>' + escapeHtml(o || "—") + '</option>';
+        }).join("") + '</select></div>';
+    }
+    if(f[2] === "textarea"){
+      return '<div class="field wide"><label for="' + id + '">' + label + '</label>' +
+        '<textarea id="' + id + '" placeholder="' + escapeHtml(f[3] || "") + '">' + escapeHtml(val) + '</textarea></div>';
+    }
+    return '<div class="field"><label for="' + id + '">' + label + '</label>' +
+      '<input type="' + f[2] + '" id="' + id + '" value="' + escapeHtml(val) + '"' +
+      (f[3] ? ' placeholder="' + escapeHtml(f[3]) + '"' : "") + '></div>';
+  }
+
+  function incidentRowMarkup(inc){
+    var clock = riddorClock(inc);
+    var kind = riddorKind(inc.riddor);
+    var badge, tone;
+    if(kind.key === "unassessed"){ badge = "not assessed"; tone = "var(--sev-red)"; }
+    else if(clock && clock.reported){ badge = "reported " + fmtDate(clock.on); tone = "var(--ink-dim)"; }
+    else if(clock){ badge = clock.days < 0 ? Math.abs(clock.days) + "d OVERDUE" : "report in " + clock.days + "d";
+                    tone = clock.days <= 3 ? "var(--sev-red)" : "var(--sev-yellow)"; }
+    else { badge = "not reportable"; tone = "var(--ink-dim)"; }
+
+    return '<div class="today-row" data-incident="' + inc.id + '">' +
+      '<span class="today-sev" style="' + siteColorCss(inc.site) + '"></span>' +
+      '<div class="today-main">' +
+        '<div class="today-title">' + escapeHtml(inc.ref || "") + ' · ' + escapeHtml(inc.type || "Incident") +
+          (inc.location ? ' — ' + escapeHtml(inc.location) : '') + '</div>' +
+        '<div class="today-meta">' + escapeHtml(inc.site || "") + ' · ' + fmtDate(inc.date) +
+          ' · ' + escapeHtml(inc.investigationStatus || "Not started") + '</div>' +
+      '</div>' +
+      '<span class="today-badge" style="color:' + tone + ';">' + badge + '</span>' +
+    '</div>';
+  }
+
+  function incidentListMarkup(){
+    var alerts = incidentAlerts();
+    var s = incidentStats();
+
+    var html = '<div class="chase-note">Incidents are kept apart from issues because they run to statutory deadlines. ' +
+      'The app tracks the clock — <strong>it does not decide whether something is reportable</strong>. That call is yours with WorkNest. ' +
+      'Keep names and medical detail out of here; initials or a role is enough, and the formal record belongs in MG\'s system.</div>';
+
+    html += '<button class="btn btn-primary" id="newIncidentBtn" style="width:100%;margin-bottom:16px;">+ Record an incident</button>';
+
+    if(alerts.length){
+      html += '<div class="today-section"><span class="eyebrow">Needs action (' + alerts.length + ')</span>' +
+        alerts.map(function(a){
+          var tone = a.urgency <= 3 ? "var(--sev-red)" : "var(--sev-yellow)";
+          return '<div class="today-row" data-incident="' + a.inc.id + '">' +
+            '<span class="today-sev" style="background:' + tone + ';"></span>' +
+            '<div class="today-main"><div class="today-title">' + escapeHtml(a.label) + '</div>' +
+            '<div class="today-meta">' + escapeHtml(a.detail) + '</div></div></div>';
+        }).join("") + '</div>';
+    }
+
+    html += '<div class="today-section"><span class="eyebrow">This year</span>' +
+      '<div class="inc-stats">' +
+        [["This month", s.thisMonth], ["Last month", s.lastMonth], ["YTD", s.ytd],
+         ["RIDDOR YTD", s.riddorYtd], ["Near misses", s.nearMiss], ["Open investigations", s.openInvestigations]]
+        .map(function(p){ return '<div class="inc-stat"><span class="n">' + p[1] + '</span><span class="l">' + p[0] + '</span></div>'; }).join("") +
+      '</div></div>';
+
+    html += '<div class="today-section"><span class="eyebrow">All incidents (' + incidents.length + ')</span>';
+    if(!incidents.length){
+      html += '<div class="today-note">Nothing recorded. That is the right state — but log near misses too, they are the cheapest data you will ever get.</div>';
+    } else {
+      html += incidents.slice().sort(function(a, b){ return (b.date || "").localeCompare(a.date || ""); })
+        .map(incidentRowMarkup).join("");
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function incidentFormMarkup(inc){
+    var html = '<button class="btn btn-sm" id="incidentBackBtn" style="margin-bottom:14px;">← All incidents</button>';
+    html += '<div class="chase-note">' + (inc.ref ? "Editing " + escapeHtml(inc.ref) : "New incident — a reference is allocated on save") + '.</div>';
+    html += '<div class="lease-grid">' +
+      INCIDENT_FIELDS.map(function(f){
+        return incidentFieldMarkup(f, inc[f[0]] === undefined ? "" : String(inc[f[0]]));
+      }).join("") + '</div>';
+    html += '<div class="inc-form-foot">' +
+      (inc.id ? '<button class="btn btn-danger btn-ghost" id="deleteIncidentBtn">Delete</button>' : '') +
+      '<div style="flex:1;"></div>' +
+      '<button class="btn btn-primary" id="saveIncidentBtn">Save incident</button></div>';
+    return html;
+  }
+
+  function renderIncidents(){
+    var body = document.getElementById("incidentBody");
+    if(editingIncidentId === null){
+      document.getElementById("incidentTitle").textContent = "Incidents";
+      body.innerHTML = incidentListMarkup();
+      document.getElementById("newIncidentBtn").addEventListener("click", function(){
+        editingIncidentId = "new"; renderIncidents();
+      });
+      body.querySelectorAll("[data-incident]").forEach(function(row){
+        row.addEventListener("click", function(){
+          editingIncidentId = row.getAttribute("data-incident"); renderIncidents();
+        });
+      });
+      return;
+    }
+
+    var inc = editingIncidentId === "new"
+      ? { date: todayISO(), investigationStatus: "Not started", riddor: "unassessed" }
+      : (incidents.find(function(i){ return i.id === editingIncidentId; }) || {});
+    document.getElementById("incidentTitle").textContent = inc.ref || "New incident";
+    body.innerHTML = incidentFormMarkup(inc);
+
+    document.getElementById("incidentBackBtn").addEventListener("click", function(){
+      editingIncidentId = null; renderIncidents();
+    });
+    document.getElementById("saveIncidentBtn").addEventListener("click", function(){
+      var rec = { id: inc.id || uid(), ref: inc.ref || "" };
+      INCIDENT_FIELDS.forEach(function(f){
+        var el = document.getElementById("in-" + f[0]);
+        if(el) rec[f[0]] = el.value.trim();
+      });
+      if(!rec.site){ showToast("Pick a venue."); return; }
+      if(!rec.date){ showToast("The incident date sets the reporting clock — it's required."); return; }
+      if(!rec.ref) rec.ref = incidentRef(rec.date);
+      if(inc.id) incidents = incidents.map(function(i){ return i.id === inc.id ? rec : i; });
+      else incidents.unshift(rec);
+      save(INCIDENTS_KEY, incidents);
+      editingIncidentId = null;
+      renderIncidents(); renderAll();
+      var clock = riddorClock(rec);
+      showToast(clock && !clock.reported
+        ? "Saved " + rec.ref + " — RIDDOR report due " + fmtDate(clock.due) +
+          (clock.kind.immediate ? ". This type is also notifiable without delay." : ".")
+        : "Saved " + rec.ref + ".");
+    });
+    var del = document.getElementById("deleteIncidentBtn");
+    if(del) del.addEventListener("click", function(){
+      confirmAction("Delete incident?", "This removes " + (inc.ref || "the record") + " permanently.", function(){
+        incidents = incidents.filter(function(i){ return i.id !== inc.id; });
+        save(INCIDENTS_KEY, incidents);
+        editingIncidentId = null; renderIncidents(); renderAll();
+        showToast("Incident deleted.");
+      });
+    });
+  }
+
+  document.getElementById("incidentsBtn").addEventListener("click", function(){
+    editingIncidentId = null;
+    document.getElementById("incidentOverlay").classList.add("open");
+    renderIncidents();
+  });
+  document.getElementById("incidentCloseBtn").addEventListener("click", function(){
+    document.getElementById("incidentOverlay").classList.remove("open");
+  });
 
   /* ---------------- site walk ----------------
 
@@ -5496,6 +5849,7 @@
     SITE_REFS_KEY, REF_CATS_KEY,
     PM_BOARD_KEY,          // imported Project Board snapshot
     THEME_KEY, CHASE_RULES_KEY,
+    INCIDENTS_KEY,         // accidents, near misses, RIDDOR clocks
     LAST_BACKUP_KEY        // so a restored device knows how fresh the file it came from was
   ];
   // Vector's chat history is deliberately excluded — it's transient and can be noisy.
@@ -5639,6 +5993,7 @@
           // isn't enough — without this the import "succeeds" but the UI keeps showing
           // the old (usually empty) data until a manual page reload. siteDetails is the
           // painful one: it holds site profiles, compliance registers and board metrics.
+          incidents = load(INCIDENTS_KEY, []);
           siteDetails = load(SITE_DETAILS_KEY, {});
           siteRefs = load(SITE_REFS_KEY, {});
           refCategories = load(REF_CATS_KEY, refCategories);
@@ -6192,6 +6547,8 @@
     if(!/\b(brief|briefing|summary|summarise|summarize|overview|priorit|what should i|where should i|focus|first thing|state of play|how are we doing)\b/.test(lower)) return null;
     var b = collectToday();
     var parts = [];
+    var incNow = incidentAlerts();
+    if(incNow.length) parts.push(incNow.length + " incident action(s), nearest — " + incNow[0].label.toLowerCase());
     if(b.overdue.length) parts.push(b.overdue.length + " overdue");
     if(b.due.length) parts.push(b.due.length + " due today");
     if(b.chase.length) parts.push(b.chase.length + " needing a chase");
@@ -6264,8 +6621,25 @@
     }).join("; ") + ". Break notice deadlines are shown a year out on purpose — miss one and the break is gone for the rest of the term.";
   }
 
+  function vIncidentAnswer(lower, site){
+    if(!/\b(incident|incidents|accident|accidents|near miss|near misses|riddor|reportable|injur\w*|dangerous occurrence|investigation)\b/.test(lower)) return null;
+    var s = incidentStats();
+    var alerts = incidentAlerts();
+    if(!incidents.length) return "No incidents recorded yet. Log near misses as well as injuries — they're the cheapest data you'll ever get, and section 2 of the Board report asks for them.";
+
+    var scoped = site ? incidents.filter(function(i){ return i.site === site; }) : incidents;
+    var out = (site ? site + ": " + scoped.length + " incident(s) recorded" : "Portfolio: " + s.ytd + " incident(s) year to date") +
+      ", " + s.thisMonth + " this month vs " + s.lastMonth + " last, " + s.riddorYtd + " RIDDOR reportable YTD, " +
+      s.nearMiss + " near miss(es).";
+    if(s.openInvestigations) out += " " + s.openInvestigations + " investigation(s) still open.";
+    if(s.unassessed) out += " " + s.unassessed + " not yet assessed for RIDDOR — that's the one to clear first, because an unmade decision is how a reporting duty gets missed.";
+    if(alerts.length) out += " Nearest action: " + alerts[0].label + " — " + alerts[0].detail + ".";
+    return out;
+  }
+
   function vectorAnalytics(text, lower, site){
-    return vBriefAnswer(lower)
+    return vIncidentAnswer(lower, site)
+        || vBriefAnswer(lower)
         || vSpendAnswer(lower, site)
         || vContractorAnswer(lower, site)
         || vComplianceAnswer(lower, site)
@@ -6337,7 +6711,10 @@
       return;
     }
 
-    if(/how many|count of|number of|what's overdue|whats overdue/.test(lower)){
+    /* "how many incidents this year" is an incident question, not an issue count — the
+       counter below only knows about issues and would confidently answer the wrong one. */
+    if(/how many|count of|number of|what's overdue|whats overdue/.test(lower)
+       && !/\b(incident|incidents|accident|accidents|near miss|near misses|riddor)\b/.test(lower)){
       var wantCritical = /critical|\bred\b/.test(lower);
       var wantOverdue = /overdue/.test(lower);
       var scopeFn = function(i){ return site ? i.site === site : true; };
