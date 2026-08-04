@@ -519,7 +519,7 @@
   .priority-pick button[data-v="Critical"].active { color: var(--pr-critical); }
   .modal-danger { color: var(--st-blocked); }
   .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
-  .toggle-row .hint { font-size: 11.5px; color: var(--ink-muted); }
+  .hint { font-size: 11.5px; color: var(--ink-muted); }
   .switch { position: relative; width: 36px; height: 21px; flex: none; }
   .switch input { opacity: 0; width: 0; height: 0; }
   .switch .track { position: absolute; inset: 0; background: var(--border-strong); border-radius: 999px; cursor: pointer; transition: background 0.15s; }
@@ -626,11 +626,39 @@
   const PRIORITIES = ["Low", "Medium", "High", "Critical"];
   const CATEGORIES = ["Compliance", "Refurbishment", "Contractor-Managed", "Licensing", "Other"];
   const STAGE_GATES = ["Concept", "Business Case", "Approved", "Procurement/Tender", "Delivery", "Close-out"];
-  function stageGateChip(stage) {
-    stage = stage || STAGE_GATES[0];
-    const idx = STAGE_GATES.indexOf(stage);
-    const cls = idx <= 1 ? "chip-notstarted" : idx <= 4 ? "chip-inprogress" : "chip-done";
-    return `<span class="chip ${cls}" title="Stage gate">${escapeHtml(stage)}</span>`;
+  // RIBA Plan of Work 2020 spine, with two practical checkpoints inserted that RIBA
+  // doesn't number as their own stage but that matter enormously here: a planning/
+  // listed-building submission can sit for months, and "waiting on planning" needs its
+  // own visible state, not just a note buried inside Stage 3. Only relevant to design-
+  // led projects (project.designLed) — a like-for-like plant swap has no design phase
+  // and RIBA stages on it would just be noise.
+  const RIBA_STAGES = [
+    "0 – Strategic Definition", "1 – Preparation & Briefing", "2 – Concept Design", "3 – Spatial Coordination",
+    "Planning Submission", "Planning Consent Granted",
+    "4 – Technical Design", "5 – Manufacturing & Construction", "6 – Handover", "7 – Use",
+  ];
+  function historyChip(stage, stages, label) {
+    stage = stage || stages[0];
+    const idx = stages.indexOf(stage);
+    const frac = stages.length > 1 ? idx / (stages.length - 1) : 0;
+    const cls = frac <= 0.15 ? "chip-notstarted" : frac < 1 ? "chip-inprogress" : "chip-done";
+    return `<span class="chip ${cls}" title="${escapeHtml(label)}">${escapeHtml(stage)}</span>`;
+  }
+  function stageGateChip(stage) { return historyChip(stage, STAGE_GATES, "Stage gate"); }
+  function ribaStageChip(stage) { return historyChip(stage, RIBA_STAGES, "RIBA stage"); }
+  function projectStageGateLog(id) { return state.stageGateLog.filter(r => r.projectId === id); }
+  function projectRibaStageLog(id) { return state.ribaStageLog.filter(r => r.projectId === id); }
+  // The "current" stage is always the most recently *logged* entry, never a separately
+  // editable field — one source of truth, so the chip shown everywhere can never drift
+  // out of sync with the history that explains it. p.stageGate is a fallback only, for
+  // projects that had a stage set via the old click-picker before this log existed.
+  function effectiveStageGate(p) {
+    const log = projectStageGateLog(p.id);
+    return log.length ? log[log.length - 1].stage : (p.stageGate || STAGE_GATES[0]);
+  }
+  function effectiveRibaStage(p) {
+    const log = projectRibaStageLog(p.id);
+    return log.length ? log[log.length - 1].stage : RIBA_STAGES[0];
   }
 
   /* ============================== DATE UTILS ============================== */
@@ -661,6 +689,7 @@
   function freshState() {
     return { venues: SEED_VENUES.map(v => ({ ...v })), projects: [], tasks: [], budgetLines: [],
       contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [], tenders: [], budgetCheckpoints: [], lessons: [],
+      stageGateLog: [], ribaStageLog: [],
       ui: { collapsed: {}, ganttZoom: "week", calMonth: todayISO().slice(0, 7), kanbanFilter: {} } };
   }
 
@@ -1199,7 +1228,8 @@
     const spend = projectSpend(p.id);
     return `<div class="task-row" data-open-project="${p.id}" style="cursor:pointer">
       <span class="chip chip-${STATUS_CLASS[p.status]}">${STATUS_ICON[p.status]}</span>
-      ${stageGateChip(p.stageGate)}
+      ${stageGateChip(effectiveStageGate(p))}
+      ${p.designLed ? ribaStageChip(effectiveRibaStage(p)) : ""}
       <div class="t-main">
         <div class="t-name">${escapeHtml(p.name)}</div>
         <div class="t-meta">${venue ? escapeHtml(venue.name) : "No venue"} · ${escapeHtml(p.category || "Other")} · ${openTasks}/${tasks.length} open tasks${openRisks ? ` · ${openRisks} open risk${openRisks === 1 ? "" : "s"}` : ""}</div>
@@ -1229,11 +1259,14 @@
     const tenders = projectTenders(id);
     const budgetCheckpoints = projectBudgetCheckpoints(id);
     const lessons = projectLessons(id);
+    const stageGateLog = projectStageGateLog(id);
+    const ribaStageLog = projectRibaStageLog(id);
     // Each log's form doubles as its edit form when one of that log's rows is being
     // edited — see editingRecord(). null on every card except the one row mid-edit.
     const editRisk = editingRecord("risks"), editDecision = editingRecord("decisions"), editQa = editingRecord("qaItems");
     const editDoc = editingRecord("documents"), editContact = editingRecord("contacts"), editNote = editingRecord("meetingNotes");
     const editTender = editingRecord("tenders"), editCheckpoint = editingRecord("budgetCheckpoints"), editLesson = editingRecord("lessons");
+    const editStageGateLog = editingRecord("stageGateLog"), editRibaStageLog = editingRecord("ribaStageLog");
 
     return `
       <div class="page-head">
@@ -1244,7 +1277,8 @@
         </div>
         <div class="page-actions">
           <span class="chip chip-${STATUS_CLASS[p.status]}">${STATUS_ICON[p.status]}${p.status}</span>
-          ${stageGateChip(p.stageGate)}
+          ${stageGateChip(effectiveStageGate(p))}
+          ${p.designLed ? ribaStageChip(effectiveRibaStage(p)) : ""}
           ${p.licenceRiskFlag ? `<span class="chip chip-blocked">${ICON.shield} Licence risk</span>` : ""}
           ${p.gamingFloorDisruption ? `<span class="chip" style="background:rgba(201,132,11,0.14);color:var(--pr-high)">${ICON.disruption} Floor disruption</span>` : ""}
           <button class="btn" data-action="edit-project" data-id="${p.id}">Edit</button>
@@ -1262,6 +1296,48 @@
         <div class="card-head"><h2>Tasks</h2><span class="g-count">${tasks.length}</span></div>
         <div class="card-body">${tasks.length ? tasks.map(t => taskRowHtml(t, isOverdue(t))).join("") : emptyState("No tasks linked to this project yet — use quick-add at the top.")}</div>
       </div>
+
+      <div class="card">
+        <div class="card-head"><h2>${ICON.shield} Governance Log</h2><span class="g-count">${stageGateLog.length}</span></div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Stage</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${[...stageGateLog].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(g => `<tr class="${editStageGateLog && editStageGateLog.id === g.id ? "log-row-editing" : ""}">
+            <td>${stageGateChip(g.stage)}</td><td>${fmtShort(g.date)}</td><td>${escapeHtml(g.notes || "—")}</td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-stagegatelog="${g.id}">${ICON.edit}</button><button class="icon-x" data-delete-stagegatelog="${g.id}">${ICON.x}</button></div></td>
+          </tr>`).join("") || `<tr><td colspan="4">${emptyState("No stage changes logged yet — this is the governance chip's source, not just a click.")}</td></tr>`}</tbody>
+        </table></div>
+        <div class="card-body pad">
+          <form class="inline-add-form" data-add-stagegatelog="${id}" data-edit-id="${editStageGateLog ? editStageGateLog.id : ""}">
+            <select name="stage">${selOpts(STAGE_GATES, editStageGateLog ? editStageGateLog.stage : effectiveStageGate(p))}</select>
+            <input type="date" name="date" value="${editStageGateLog ? editStageGateLog.date || "" : todayISO()}" />
+            <input class="grow2" type="text" name="notes" placeholder="Why this stage / who approved / what changed" value="${editStageGateLog ? escapeHtml(editStageGateLog.notes || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editStageGateLog ? ICON.check : ICON.plus} ${editStageGateLog ? "Save changes" : "Log stage"}</button>
+            ${editStageGateLog ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="stageGateLog">Cancel</button>` : ""}
+          </form>
+        </div>
+      </div>
+
+      ${p.designLed ? `
+      <div class="card">
+        <div class="card-head"><h2>${ICON.doc} RIBA Design Stage Log</h2><span class="g-count">${ribaStageLog.length}</span></div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Stage</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${[...ribaStageLog].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(g => `<tr class="${editRibaStageLog && editRibaStageLog.id === g.id ? "log-row-editing" : ""}">
+            <td>${ribaStageChip(g.stage)}</td><td>${fmtShort(g.date)}</td><td>${escapeHtml(g.notes || "—")}</td>
+            <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-ribastagelog="${g.id}">${ICON.edit}</button><button class="icon-x" data-delete-ribastagelog="${g.id}">${ICON.x}</button></div></td>
+          </tr>`).join("") || `<tr><td colspan="4">${emptyState("No design stages logged yet — includes planning submission/consent as its own checkpoint.")}</td></tr>`}</tbody>
+        </table></div>
+        <div class="card-body pad">
+          <form class="inline-add-form" data-add-ribastagelog="${id}" data-edit-id="${editRibaStageLog ? editRibaStageLog.id : ""}">
+            <select name="stage">${selOpts(RIBA_STAGES, editRibaStageLog ? editRibaStageLog.stage : effectiveRibaStage(p))}</select>
+            <input type="date" name="date" value="${editRibaStageLog ? editRibaStageLog.date || "" : todayISO()}" />
+            <input class="grow2" type="text" name="notes" placeholder="Consultant, drawing ref, planning ref, condition…" value="${editRibaStageLog ? escapeHtml(editRibaStageLog.notes || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editRibaStageLog ? ICON.check : ICON.plus} ${editRibaStageLog ? "Save changes" : "Log stage"}</button>
+            ${editRibaStageLog ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="ribaStageLog">Cancel</button>` : ""}
+          </form>
+        </div>
+      </div>
+      ` : ""}
 
       <div class="card">
         <div class="card-head"><h2>${ICON.budget} Budget Checkpoints</h2><span class="g-count">${budgetCheckpoints.length}</span></div>
@@ -1498,6 +1574,8 @@
     { key: "tenders", addAttr: "data-add-tender", delAttr: "data-delete-tender", editAttr: "data-edit-tender", fields: ["title", "route", "status", "issueDate", "returnDate", "estValue", "owner"] },
     { key: "budgetCheckpoints", addAttr: "data-add-budgetcheckpoint", delAttr: "data-delete-budgetcheckpoint", editAttr: "data-edit-budgetcheckpoint", fields: ["stage", "amount", "date", "notes"] },
     { key: "lessons", addAttr: "data-add-lesson", delAttr: "data-delete-lesson", editAttr: "data-edit-lesson", fields: ["date", "theme", "whatHappened", "doDifferently", "raisedBy"] },
+    { key: "stageGateLog", addAttr: "data-add-stagegatelog", delAttr: "data-delete-stagegatelog", editAttr: "data-edit-stagegatelog", fields: ["stage", "date", "notes"] },
+    { key: "ribaStageLog", addAttr: "data-add-ribastagelog", delAttr: "data-delete-ribastagelog", editAttr: "data-edit-ribastagelog", fields: ["stage", "date", "notes"] },
   ];
 
   function bindProjectDetailEvents(root) {
@@ -2191,7 +2269,7 @@
     const draft = existing ? JSON.parse(JSON.stringify(existing)) : {
       id: null, name: "", venueId: state.venues[0] ? state.venues[0].id : null, category: "Other", owner: "",
       status: "Not Started", stageGate: STAGE_GATES[0], budgetAllocated: 0, startDate: todayISO(), targetEndDate: "", actualEndDate: "",
-      licenceRiskFlag: false, gamingFloorDisruption: false,
+      licenceRiskFlag: false, gamingFloorDisruption: false, designLed: false,
     };
     if (!draft.stageGate) draft.stageGate = STAGE_GATES[0];
 
@@ -2205,7 +2283,8 @@
         </div>
         <div class="field"><label>Owner</label><input type="text" id="pOwner" value="${escapeHtml(draft.owner)}" placeholder="e.g. Venue Director, Dalkia" /></div>
         <div class="field"><label>Status</label><div class="status-pick" id="pStatus">${STATUSES.map(s => `<button type="button" data-v="${s}" class="${draft.status === s ? "active" : ""}">${s}</button>`).join("")}</div></div>
-        <div class="field"><label>Stage gate<div class="hint">Governance checkpoint — log who approved the move in this project's Decisions Log</div></label><div class="status-pick" id="pStageGate">${STAGE_GATES.map(g => `<button type="button" data-v="${g}" class="${draft.stageGate === g ? "active" : ""}">${g}</button>`).join("")}</div></div>
+        <div class="hint" style="margin-top:-6px">Stage gate and RIBA design stage now live on the project page itself, as a logged history with notes — not here.</div>
+        <div class="toggle-row"><span>Design-led (show RIBA stages)<div class="hint">Turn on for projects with an actual design phase — refurbs, reformats, anything needing planning or listed-building consent. Leave off for like-for-like replacement work.</div></span><label class="switch"><input type="checkbox" id="pDesignLed" ${draft.designLed ? "checked" : ""} /><span class="track"></span></label></div>
         <div class="field-row">
           <div class="field"><label>Start date</label><input type="date" id="pStart" value="${draft.startDate || ""}" /></div>
           <div class="field"><label>Target end date</label><input type="date" id="pEnd" value="${draft.targetEndDate || ""}" /></div>
@@ -2220,7 +2299,6 @@
       </div>
     `;
     dlg.querySelector("#pStatus").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; draft.status = b.dataset.v; dlg.querySelectorAll("#pStatus button").forEach(x => x.classList.toggle("active", x === b)); });
-    dlg.querySelector("#pStageGate").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; draft.stageGate = b.dataset.v; dlg.querySelectorAll("#pStageGate button").forEach(x => x.classList.toggle("active", x === b)); });
     dlg.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => dlg.close()));
     const deleteBtn = dlg.querySelector("#pDelete");
     if (deleteBtn) deleteBtn.addEventListener("click", () => {
@@ -2237,6 +2315,7 @@
         owner: dlg.querySelector("#pOwner").value.trim(), status: draft.status, stageGate: draft.stageGate || STAGE_GATES[0], budgetAllocated: Number(dlg.querySelector("#pBudget").value) || 0,
         startDate: dlg.querySelector("#pStart").value || null, targetEndDate: dlg.querySelector("#pEnd").value || null, actualEndDate: draft.actualEndDate || null,
         licenceRiskFlag: dlg.querySelector("#pLicence").checked, gamingFloorDisruption: dlg.querySelector("#pDisrupt").checked,
+        designLed: dlg.querySelector("#pDesignLed").checked,
       };
       const idx = state.projects.findIndex(p => p.id === payload.id);
       if (idx >= 0) state.projects[idx] = payload; else state.projects.push(payload);
