@@ -20,7 +20,7 @@ order. Grep for `====` to jump between them:
 | DASHBOARD | Overdue / due-this-week / budget alerts. Pulls from `allDatedItems()` (tasks *and* subtasks with due dates, merged) — don't reintroduce a tasks-only view here. |
 | GANTT | The custom Gantt: zoom levels, drag-to-reschedule, dependency lines, milestones. `renderTaskRow` and `startDrag` are the two functions to understand before touching this. |
 | KANBAN BOARD | `renderKanban()` + `bindKanbanEvents()` — four status columns, HTML5 drag-and-drop between them, filters by project/venue/owner persisted in `state.ui.kanbanFilter`. Same tasks as the Gantt, flow view instead of timeline. |
-| PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the nine project logs (see below). |
+| PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the eleven project logs (see below) — the original nine plus `stageGateLog`/`ribaStageLog`. |
 | BUDGET / CALENDAR / DATA & BACKUP | Mostly self-contained; Calendar also pulls subtask due dates in, same pattern as Dashboard. |
 | PAGE DISPATCH | `renderPage()` — full re-render of `#content` on every state change, then `bindPageEvents()` re-attaches listeners. No virtual DOM, no diffing. If you add a page, register it in both `PAGES`/dispatch and add its bindings here. |
 | TASK MODAL / PROJECT MODAL / COST MODAL | `<dialog>`-based modals, built fresh (innerHTML) each time they open. |
@@ -118,24 +118,50 @@ Two things here are load-bearing:
   `change` handler tears the focused input out mid-blur and Chrome throws on the
   `innerHTML` assignment. Verified: it threw before the fix, clean after.
 
-## Stage-gate governance (`stageGate` on projects)
+## Stage gate & RIBA design stage — logged history, not a clickable field
 
-Projects carry a `stageGate` field — `STAGE_GATES = ["Concept", "Business Case",
-"Approved", "Procurement/Tender", "Delivery", "Close-out"]` — separate from `status`
-(Not Started/In Progress/Blocked/Done, which tracks day-to-day task progress).
-`stageGate` tracks formal governance position instead: has this actually been through
-a business case and sign-off, not just "someone's working on it." Edited via the same
-button-picker pattern as `status` (`#pStageGate` mirrors `#pStatus` in
-`openProjectModal`), rendered via `stageGateChip()` on the project list row and detail
-header. Old saved projects with no `stageGate` fall back to `"Concept"` at render time
-(`p.stageGate || STAGE_GATES[0]`) — no migration needed, same trick as everywhere else
-in this file that's added a project field after projects already existed.
+**This replaced an earlier design.** Stage gate started as a single click-to-set field
+in the project modal (`#pStageGate`, mirroring `#pStatus`), with the advice to record
+*why* in the Decisions Log separately. Michael explicitly rejected that split — he
+wants notes captured at the point of the stage change itself, not routed through a
+different log — so the click-picker is gone and stage gate is now a **logged history**,
+same shape as Budget Checkpoints. Don't reintroduce a directly-editable `stageGate`
+field in the project modal; that would recreate the two-sources-of-truth problem this
+redesign exists to avoid (see below).
 
-Deliberately **not** a separate log/audit-trail entity: recording *who* approved a gate
-move belongs in the existing Decisions Log (a decision like "Approved to proceed to
-Procurement — signed off by ECT Board, 12 Aug" is exactly what that log is for). Adding
-an eighth near-duplicate log type for gate approvals specifically would just be the
-Decisions Log with extra steps — don't build one.
+- **`stageGateLog`** (`STAGE_GATES = ["Concept", "Business Case", "Approved",
+  "Procurement/Tender", "Delivery", "Close-out"]`) and **`ribaStageLog`**
+  (`RIBA_STAGES` — the RIBA Plan of Work 2020 spine, 0 through 7, with two practical
+  checkpoints inserted that RIBA doesn't number as their own stage: `"Planning
+  Submission"` and `"Planning Consent Granted"`, sitting between stage 3 and stage 4).
+  Both are ordinary `PROJECT_LOG_ENTITIES` entries — `{ stage, date, notes }` — fully
+  add/edit/delete capable via the generic mechanism, nothing bespoke.
+- **The displayed chip is never a stored value — it's derived.** `effectiveStageGate(p)`
+  and `effectiveRibaStage(p)` return the *last entry* in that project's log. This is
+  deliberate: there is exactly one source of truth (the log), so the chip shown on the
+  project list, the detail header, and anywhere else can never drift out of sync with
+  the history that explains it. Don't add a separately-settable "current stage" field
+  alongside the log — that's exactly the bug this design avoids.
+- **`p.stageGate` still exists on the project object, but only as a fallback** for
+  projects that had a stage set via the old click-picker before this log existed and
+  haven't logged anything since. `effectiveStageGate()` checks the log first, and only
+  reads `p.stageGate` when the log is empty. There is no equivalent fallback for RIBA —
+  it's a new field, so `effectiveRibaStage()` just defaults to `RIBA_STAGES[0]`.
+- **RIBA is gated behind `project.designLed`** (a toggle in the project modal, same
+  pattern as `licenceRiskFlag`/`gamingFloorDisruption`), and the whole RIBA Design
+  Stage Log card is omitted from the page when it's off — a like-for-like plant
+  replacement has no design phase, and showing RIBA stages on it would be noise, not
+  signal. Turning it off doesn't delete `ribaStageLog` entries, only hides the card;
+  turning it back on shows the same history (`test_stage_logs.js` asserts this
+  specifically).
+- Both logs sort by **date**, not by stage order (unlike Budget Checkpoints, which
+  sorts by `STAGE_GATES.indexOf`). A project can legitimately revisit an earlier stage
+  (sent back for revision), and gate-order sorting would clump those non-chronologically
+  — a log is a timeline, read it as one.
+- `historyChip(stage, stages, label)` is the one chip renderer both `stageGateChip()`
+  and `ribaStageChip()` call — colour banding by fractional position in the stages
+  array, not hardcoded per-stage. Adding a stage to either list doesn't need a matching
+  edit to the chip colour logic.
 
 ## Budget Checkpoints (`budgetCheckpoints`)
 
