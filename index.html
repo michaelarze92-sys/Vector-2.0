@@ -776,6 +776,7 @@
         <div class="menu" id="menu">
           <button id="exportJsonBtn">Export backup (.json)</button>
           <button id="exportCsvBtn">Export report (.csv)</button>
+          <button id="exportAllCsvBtn">Export EVERYTHING (.csv)</button>
           <button id="importBtn">Import backup (.json)</button>
           <button id="notifyToggleBtn">Daily reminders: off</button>
           <button id="backupSettingsBtn">Scheduled backups…</button>
@@ -6125,11 +6126,7 @@
   document.getElementById("exportCsvBtn").addEventListener("click", function(){
     var cols = ["title","site","category","status","risk","urgency","cost","assigned","dateReported","targetDate","resolvedDate","costEstimate","actualCost","tags","description"];
     var header = ["Title","Site","Category","Status","Risk","Urgency","Cost impact","Assigned","Date reported","Target date","Resolved date","Cost estimate","Actual cost","Tags","Description"];
-    function csvCell(v){
-      v = v == null ? "" : String(v);
-      if(/[",\n]/.test(v)) v = '"' + v.replace(/"/g,'""') + '"';
-      return v;
-    }
+    // csvCell is shared with the full export — one quoting rule, one place to fix it
     var rows = issues.map(function(i){
       return cols.map(function(c){
         if(c === "tags") return csvCell((i.tags||[]).join("; "));
@@ -6138,6 +6135,201 @@
     });
     var csv = header.map(csvCell).join(",") + "\n" + rows.join("\n");
     offerDownload("estates-ledger-report.csv", "text/csv", csv);
+  });
+
+  /* ---- Export everything (readable) ----
+
+     The JSON backup holds everything but only this app can read it. That's fine for
+     restoring; it is not fine as the answer to "what if I stop using this". A tool
+     holding compliance dates and RIDDOR records has to be walkable-away-from without
+     needing a developer, so this writes every table as plain CSV.
+
+     One file with a labelled block per table, rather than one download per table:
+     browsers throttle or silently drop repeated downloads, and a partial export is worse
+     than an awkward one. Excel opens it; each block pastes into its own sheet.
+
+     ADD ANY NEW TABLE HERE. `test_export_all.js` asserts the block list matches the
+     storage keys, so a new store that never reaches this export fails the suite rather
+     than being discovered on the day it's needed. */
+  function csvCell(v){
+    v = v == null ? "" : String(v);
+    // a leading =, +, - or @ makes Excel treat the cell as a formula
+    if(/^[=+\-@]/.test(v)) v = "'" + v;
+    if(/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  }
+  function csvBlock(title, header, rows){
+    return title + "\n" + header.map(csvCell).join(",") + "\n" +
+      (rows.length ? rows.map(function(r){ return r.map(csvCell).join(","); }).join("\n")
+                   : "(none recorded)") + "\n\n";
+  }
+
+  function buildFullCsv(){
+    var out = "ESTATES LEDGER — FULL EXPORT\nGenerated," + new Date().toLocaleString("en-GB") + "\n\n";
+
+    out += csvBlock("ISSUES",
+      ["Title","Site","Category","Status","Risk","Urgency","Cost impact","Assigned",
+       "Date reported","Target date","Resolved date","Cost estimate","Actual cost","Tags","Description"],
+      issues.map(function(i){
+        return [i.title, i.site, i.category, i.status, i.risk, i.urgency, i.cost, i.assigned,
+                i.dateReported, i.targetDate, i.resolvedDate, i.costEstimate, i.actualCost,
+                (i.tags || []).join("; "), i.description];
+      }));
+
+    /* Notes and logged emails are the audit trail — the record of who was chased and
+       when. Flattened to one row each so the history survives the export, because it is
+       the part you would most want in a dispute. */
+    var noteRows = [];
+    issues.forEach(function(i){
+      (i.notes || []).forEach(function(n){
+        noteRows.push([i.title, i.site, (n.ts || "").slice(0, 16).replace("T", " "),
+                       n.kind === "email" ? (n.direction || "Email") : "Note",
+                       n.from || "", n.to || "", n.subject || "", n.text || ""]);
+      });
+    });
+    out += csvBlock("ACTIVITY LOG (notes & logged emails)",
+      ["Issue","Site","When","Type","From","To","Subject","Text"], noteRows);
+
+    out += csvBlock("INCIDENTS",
+      ["Ref","Date","Time","Venue","Type","Location","Person type","Initials/role",
+       "RIDDOR assessment","Report due by","Reported on","HSE ref","Investigation",
+       "What happened","Injury/outcome","Immediate action","Root cause","Actions","Reported by"],
+      incidents.map(function(i){
+        var clock = riddorClock(i);
+        return [i.ref, i.date, i.time, i.site, i.type, i.location, i.personType, i.personRef,
+                riddorKind(i.riddor).label,
+                clock && !clock.reported ? clock.due : "",
+                i.riddorReportedDate, i.riddorRef, i.investigationStatus,
+                i.description, i.injuryDetail, i.immediateAction, i.rootCause, i.actions, i.reportedBy];
+      }));
+
+    // the derived notice deadline is included: it's the number that took work to produce
+    var leaseRows = [];
+    PROPERTY_ORDER.forEach(function(s){
+      var L = getLease(s);
+      if(!Object.keys(L).some(function(k){ return String(L[k] || "").trim(); })) return;
+      leaseRows.push([s, L.landlordAgent, L.ourAgent, L.demise, L.startDate, L.expiryDate,
+        L.passingRent, L.securityOfTenure, L.breakType, L.breakDate, L.breakNoticeMonths,
+        monthsBefore(L.breakDate, L.breakNoticeMonths), L.breakConditions,
+        L.reviewDate, L.reviewBasis, L.reviewUpwardOnly, L.reviewNote,
+        L.repairingObligation, L.scheduleOfCondition, L.dilapsProvision, L.dilapsNote,
+        L.alterationsConsent, L.alienation, L.useClause,
+        L.serviceCharge, L.serviceChargeCap, L.serviceChargeYearEnd,
+        L.rateableValue, L.ratesAppealDeadline, L.leaseDocUrl, L.notes]);
+    });
+    out += csvBlock("LEASES",
+      ["Venue","Landlord's agent","Our agent","Demise","Term start","Term expiry","Passing rent",
+       "Security of tenure","Break — whose option","Break date","Notice months",
+       "SERVE NOTICE BY (derived)","Break conditions","Next review","Review basis","Upward only",
+       "Review note","Repairing obligation","Schedule of condition","Dilaps provision","Dilaps note",
+       "Alterations consent","Alienation","Permitted use","Service charge","SC cap","SC year end",
+       "Rateable value","Rates appeal deadline","Lease document","Notes"], leaseRows);
+
+    var compRows = [], contactRows = [], siteRows = [], locRows = [];
+    PROPERTY_ORDER.forEach(function(s){
+      var d = getSiteDetail(s);
+      (d.compliance || []).forEach(function(c){ compRows.push([s, c.type, c.due, c.url]); });
+      (d.contacts || []).forEach(function(c){ contactRows.push([s, c.name, c.role, c.phone, c.email]); });
+      (d.locations || []).forEach(function(l){ locRows.push([s, l.label || l.name, l.words || l.w3w]); });
+      siteRows.push([s, d.address, d.sqft, d.landlord, d.tenants, d.casinoDirector,
+                     d.fmContractors, d.licenceRef]);
+    });
+    out += csvBlock("COMPLIANCE REGISTER", ["Venue","Type","Due","Certificate link"], compRows);
+    out += csvBlock("CONTACTS", ["Venue","Name","Role","Phone","Email"], contactRows);
+    out += csvBlock("SITE DETAILS",
+      ["Venue","Address","Square footage","Landlord","Tenants / sub-lets","Casino Director",
+       "FM contractors","Gaming licence ref"], siteRows);
+    out += csvBlock("KEY LOCATIONS", ["Venue","Label","what3words"], locRows);
+
+    /* Board Report metrics — per-venue (sections 1, 3–6) live in siteDetails[site].metrics,
+       estate-wide (2, 7, 8) in ESTATE_METRICS_KEY. Flattened to venue/section/field/value
+       rather than mirroring the nested shape: the point is a spreadsheet someone can read,
+       and this is a quarter's worth of chasing other people for numbers. Walks whatever is
+       actually stored rather than only the known fields, so a shape change can't silently
+       drop data on its way out. */
+    function metricRowsFor(scope, sectionKey, data, rows){
+      if(!data || typeof data !== "object") return;
+      var section = METRIC_SECTIONS.filter(function(s){ return s.key === sectionKey; })[0];
+      var title = section ? (section.num + ". " + section.title) : sectionKey;
+      function labelFor(fieldKey){
+        if(!section) return fieldKey;
+        var f = (section.fields || []).filter(function(x){ return x.key === fieldKey; })[0];
+        return f ? f.label : fieldKey;
+      }
+      Object.keys(data.values || {}).forEach(function(fk){
+        if(String(data.values[fk] == null ? "" : data.values[fk]).trim() === "") return;
+        rows.push([scope, title, labelFor(fk), data.values[fk]]);
+      });
+      (data.rows || []).forEach(function(r, idx){
+        Object.keys(r || {}).forEach(function(fk){
+          if(fk === "id") return;
+          if(String(r[fk] == null ? "" : r[fk]).trim() === "") return;
+          rows.push([scope, title, "Row " + (idx + 1) + " — " + labelFor(fk), r[fk]]);
+        });
+      });
+      (data.refs || []).forEach(function(ref){
+        rows.push([scope, title, "Supporting document",
+                   ref.label || ref.name || ref.url || JSON.stringify(ref)]);
+      });
+    }
+
+    var metricRows = [];
+    PROPERTY_ORDER.forEach(function(s){
+      var m = getSiteDetail(s).metrics || {};
+      Object.keys(m).forEach(function(k){ metricRowsFor(s, k, m[k], metricRows); });
+    });
+    var estateMetrics = {};
+    try { estateMetrics = JSON.parse(localStorage.getItem(ESTATE_METRICS_KEY) || "{}") || {}; } catch(e){}
+    Object.keys(estateMetrics).forEach(function(k){
+      var v = estateMetrics[k];
+      if(v && typeof v === "object" && (v.values || v.rows || v.refs)) metricRowsFor("Estate-wide", k, v, metricRows);
+      else if(String(v == null ? "" : v).trim() !== "") metricRows.push(["Estate-wide", k, "", typeof v === "object" ? JSON.stringify(v) : v]);
+    });
+    out += csvBlock("BOARD SHE REPORT DATA", ["Venue","Section","Field","Value"], metricRows);
+
+    var refRows = [];
+    Object.keys(siteRefs || {}).forEach(function(s){
+      (siteRefs[s] || []).forEach(function(r){ refRows.push([s, r.category, r.label, r.url]); });
+    });
+    out += csvBlock("REFERENCE LINKS", ["Venue","Category","Label","URL"], refRows);
+
+    var pm = getPmBoard();
+    out += csvBlock("CAPITAL PROJECTS (imported snapshot)",
+      ["Project","Site","Owner","Status","Allocated","Spent","Start","Target end"],
+      ((pm && pm.projects) || []).map(function(p){
+        return [p.name, p.site, p.owner, p.status, p.budgetAllocated, p.spend, p.startDate, p.targetEndDate];
+      }));
+
+    out += csvBlock("CONTRACTORS", ["Name","Email on file"],
+      contractors.map(function(c){ return [c, contractorEmailMap[c] || ""]; }));
+
+    /* Photos and documents can't live in a CSV, so the export lists them by name and
+       says where to get them, rather than leaving you to discover the gap later. */
+    return idbAll().then(function(files){
+      out += csvBlock("PHOTOS & DOCUMENTS (files — see note below)",
+        ["Attached to","Site","File name","Type","Size (bytes)","Added"],
+        files.map(function(f){
+          var issue = issues.find(function(i){ return i.id === f.issueId; });
+          return [f.kind === "siteImage" ? "Site photo" : (issue ? issue.title : "(orphan)"),
+                  f.site || (issue ? issue.site : ""), f.name, f.type, f.size,
+                  (f.addedAt || "").slice(0, 10)];
+        }));
+      out += "NOTE\n\"The files above are listed, not included — a CSV cannot carry images. " +
+             "They are inside the JSON backup (Export backup), base64-encoded, and can be " +
+             "extracted from it without this app.\"\n";
+      return out;
+    }).catch(function(){
+      out += "PHOTOS & DOCUMENTS\n\"Could not read local file storage, so attachments are not listed.\"\n";
+      return out;
+    });
+  }
+
+  document.getElementById("exportAllCsvBtn").addEventListener("click", function(){
+    showToast("Building full export…");
+    buildFullCsv().then(function(csv){
+      // BOM so Excel opens UTF-8 correctly — without it, £ and en dashes arrive mangled
+      offerDownload("estates-ledger-everything.csv", "text/csv", "﻿" + csv);
+    });
   });
 
   document.getElementById("importBtn").addEventListener("click", function(){

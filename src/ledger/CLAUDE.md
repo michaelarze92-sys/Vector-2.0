@@ -737,3 +737,40 @@ their own sections. `renderAll()` runs on first paint and reaches `incidentAlert
 `backupDue()`; a `var` assigned four thousand lines later is hoisted but `undefined` at
 that point, which crashes rather than degrading. Any new module-level state that
 `renderAll` can reach belongs in that top block.
+
+## Export everything — the walk-away guarantee
+
+The JSON backup holds everything but **only this app can read it**. That is fine for
+restoring and useless as an answer to "what if I stop using this". A tool holding
+compliance dates, lease notice deadlines and RIDDOR records has to be leavable without
+needing a developer, so **⋮ → Export EVERYTHING (.csv)** writes every table as plain CSV.
+
+One file with a labelled block per table, not one download per table: browsers throttle or
+silently drop repeated downloads, and a partial export is worse than an awkward one. Excel
+opens it; each block pastes into its own sheet.
+
+Blocks: Issues · Activity log (notes *and* logged emails) · Incidents · Leases · Compliance
+register · Contacts · Site details · Key locations · Board SHE report data · Reference
+links · Capital projects · Contractors · Photos & documents (listed, not embedded).
+
+**ADD ANY NEW TABLE HERE.** `test_export_all.js` seeds every store with a distinctive
+marker and asserts each one survives — a new store that never reaches the export fails the
+suite rather than being discovered on the day it's needed. It also lists the record stores
+in `localStorage` and fails on an unrecognised one.
+
+### Decisions worth keeping
+
+- **Derived values are exported, not just their inputs.** The lease block carries
+  `SERVE NOTICE BY`, and incidents carry `Report due by`. Those numbers took work to
+  produce and are the reason the module exists; re-deriving them from a spreadsheet is
+  exactly the error this is meant to prevent.
+- **Board metrics are flattened** to venue/section/field/value and walk *whatever is
+  stored*, not only the known `METRIC_SECTIONS` fields — a shape change must not silently
+  drop a quarter's worth of chasing other people for numbers.
+- **Empty tables print `(none recorded)`** rather than vanishing. A missing block reads as
+  a bug; an empty one reads as an empty table.
+- **A UTF-8 BOM leads the file** or Excel mangles £ and en dashes.
+- **`csvCell` prefixes a leading `=`, `+`, `-` or `@` with an apostrophe.** Excel treats
+  those as formulas otherwise — a CSV injection risk and, more mundanely, a wrong cell.
+- **Files are listed, not included**, and the note says where they actually are. A CSV
+  cannot carry images; leaving that to be discovered later would be the whole point missed.
