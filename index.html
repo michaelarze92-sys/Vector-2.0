@@ -777,13 +777,15 @@
           <button id="exportJsonBtn">Export backup (.json)</button>
           <button id="exportCsvBtn">Export report (.csv)</button>
           <button id="exportAllCsvBtn">Export EVERYTHING (.csv)</button>
-          <button id="importBtn">Import backup (.json)</button>
+          <button id="importBtn">Import backup (.json) — REPLACES</button>
+          <button id="mergeBtn">Merge in data (.json / .csv) — adds only</button>
           <button id="notifyToggleBtn">Daily reminders: off</button>
           <button id="backupSettingsBtn">Scheduled backups…</button>
           <button id="themeToggleBtn">Toggle theme (dark / light / hybrid)</button>
           <div class="note" id="menuBackupNote">Everything — issues, notes, photos &amp; documents — lives only in this browser. Export backup regularly, or to move it to another device.</div>
         </div>
         <input type="file" id="importFile" accept="application/json">
+        <input type="file" id="mergeFile" accept=".json,.csv,application/json,text/csv">
       </div>
     </div>
   </div>
@@ -6330,6 +6332,425 @@
       // BOM so Excel opens UTF-8 correctly — without it, £ and en dashes arrive mangled
       offerDownload("estates-ledger-everything.csv", "text/csv", "﻿" + csv);
     });
+  });
+
+  /* ---- Merge in data ----
+
+     A second, deliberately separate command from "Import backup". Import REPLACES — it's
+     a restore, and its confirm says so. Merge only ever ADDS. Keeping them as two menu
+     items rather than one dialog with two verbs means neither can be picked by accident:
+     the destructive one keeps its own scary prompt, and this one cannot destroy anything
+     whatever you feed it.
+
+     THE RULE, and it holds for every store below:
+       · a row that already exists is skipped, never duplicated
+       · a field that already has a value is never overwritten
+       · nothing is ever deleted
+     Where both sides have something, the device wins. That makes the operation safe to
+     repeat, and safe to run without reading the file first. */
+
+  function mergeText(a, b){ return String(a || "").trim() ? a : (b || ""); }
+
+  // loose identity: the same job re-typed won't have the same id, but it is the same job
+  function sameIssue(a, b){
+    if(a.id && b.id && a.id === b.id) return true;
+    return (a.title || "").trim().toLowerCase() === (b.title || "").trim().toLowerCase()
+        && (a.site || "").trim().toLowerCase() === (b.site || "").trim().toLowerCase();
+  }
+  function sameIncident(a, b){
+    if(a.id && b.id && a.id === b.id) return true;
+    if(a.ref && b.ref && a.ref === b.ref) return true;
+    return a.date === b.date && a.site === b.site && (a.type || "") === (b.type || "");
+  }
+  function sameNamed(a, b, key){
+    return String(a[key] || "").trim().toLowerCase() === String(b[key] || "").trim().toLowerCase();
+  }
+
+  /* Returns a report rather than mutating: the preview has to be able to say exactly what
+     will happen BEFORE anything is written, and the only honest way to do that is to run
+     the merge and count. `apply` decides whether the result is saved. */
+  function mergeIncoming(inc, apply){
+    var added = { issues: 0, incidents: 0, contacts: 0, compliance: 0, locations: 0,
+                  refs: 0, leases: 0, siteFields: 0, contractors: 0 };
+    var skipped = { issues: 0, incidents: 0, contacts: 0, compliance: 0, locations: 0, refs: 0 };
+
+    var nextIssues = issues.slice();
+    (inc.issues || []).forEach(function(row){
+      if(!String(row.title || "").trim()) return;
+      /* Estate-wide items — an unsigned MSA, a budget cap review — genuinely have no venue.
+         Filing them under one label keeps them visible and keeps the title+site dedupe key
+         working; dropping them would lose real actions without saying so. */
+      if(!String(row.site || "").trim()) row.site = "Portfolio-wide";
+      if(nextIssues.some(function(e){ return sameIssue(e, row); })){ skipped.issues++; return; }
+      nextIssues.push({
+        id: row.id || uid(), title: row.title, site: row.site,
+        category: row.category || "Other", description: row.description || "",
+        risk: row.risk || "2", urgency: row.urgency || "2", cost: row.cost || "2",
+        status: row.status || "Open", assigned: row.assigned || "",
+        dateReported: row.dateReported || todayISO(), targetDate: row.targetDate || "",
+        resolvedDate: row.resolvedDate || "", costEstimate: row.costEstimate || "",
+        actualCost: row.actualCost || "",
+        tags: (row.tags || "").split(/[;,]/).map(function(t){ return t.trim(); }).filter(Boolean),
+        notes: []
+      });
+      added.issues++;
+    });
+
+    var nextIncidents = incidents.slice();
+    (inc.incidents || []).forEach(function(row){
+      if(!String(row.site || "").trim() || !String(row.date || "").trim()) return;
+      if(nextIncidents.some(function(e){ return sameIncident(e, row); })){ skipped.incidents++; return; }
+      var rec = { id: row.id || uid(), ref: row.ref || "", date: row.date, site: row.site };
+      INCIDENT_FIELDS.forEach(function(f){
+        if(rec[f[0]] === undefined) rec[f[0]] = row[f[0]] || "";
+      });
+      if(!rec.riddor) rec.riddor = "unassessed";
+      if(!rec.investigationStatus) rec.investigationStatus = "Not started";
+      if(!rec.ref) rec.ref = "INC-" + (rec.date || todayISO()).slice(0, 4) + "-" +
+        String(nextIncidents.length + 1).padStart(3, "0");
+      nextIncidents.push(rec);
+      added.incidents++;
+    });
+
+    var nextDetails = JSON.parse(JSON.stringify(siteDetails || {}));
+    function detailFor(site){
+      nextDetails[site] = nextDetails[site] || {};
+      var d = nextDetails[site];
+      d.contacts = d.contacts || []; d.compliance = d.compliance || []; d.locations = d.locations || [];
+      return d;
+    }
+
+    (inc.siteDetails || []).forEach(function(row){
+      if(!row.site || PROPERTY_ORDER.indexOf(row.site) === -1) return;
+      var d = detailFor(row.site);
+      SITE_DETAIL_FIELDS.forEach(function(f){
+        if(row[f[0]] === undefined || !String(row[f[0]]).trim()) return;
+        if(String(d[f[0]] || "").trim()) return;      // already has a value — device wins
+        d[f[0]] = row[f[0]]; added.siteFields++;
+      });
+    });
+
+    (inc.contacts || []).forEach(function(row){
+      if(!row.site || !String(row.name || "").trim()) return;
+      var d = detailFor(row.site);
+      if(d.contacts.some(function(c){ return sameNamed(c, row, "name"); })){ skipped.contacts++; return; }
+      d.contacts.push({ id: uid(), name: row.name, role: row.role || "",
+                        phone: row.phone || "", email: row.email || "" });
+      added.contacts++;
+    });
+
+    (inc.compliance || []).forEach(function(row){
+      if(!row.site || !String(row.type || "").trim()) return;
+      var d = detailFor(row.site);
+      if(d.compliance.some(function(c){ return sameNamed(c, row, "type"); })){ skipped.compliance++; return; }
+      d.compliance.push({ id: uid(), type: row.type, due: row.due || "", url: row.url || "" });
+      added.compliance++;
+    });
+
+    (inc.locations || []).forEach(function(row){
+      if(!row.site || !String(row.label || "").trim()) return;
+      var d = detailFor(row.site);
+      if(d.locations.some(function(l){ return sameNamed(l, row, "label"); })){ skipped.locations++; return; }
+      d.locations.push({ id: uid(), label: row.label, words: row.words || "" });
+      added.locations++;
+    });
+
+    (inc.leases || []).forEach(function(row){
+      if(!row.site || PROPERTY_ORDER.indexOf(row.site) === -1) return;
+      var d = detailFor(row.site);
+      d.lease = d.lease || {};
+      var touched = false;
+      LEASE_GROUPS.forEach(function(g){
+        g.fields.forEach(function(f){
+          if(row[f[0]] === undefined || !String(row[f[0]]).trim()) return;
+          if(String(d.lease[f[0]] || "").trim()) return;   // never overwrite a recorded term
+          d.lease[f[0]] = row[f[0]]; touched = true;
+        });
+      });
+      if(touched) added.leases++;
+    });
+
+    var nextRefs = JSON.parse(JSON.stringify(siteRefs || {}));
+    (inc.refs || []).forEach(function(row){
+      if(!row.site || !String(row.label || "").trim()) return;
+      nextRefs[row.site] = nextRefs[row.site] || [];
+      if(nextRefs[row.site].some(function(r){ return sameNamed(r, row, "label"); })){ skipped.refs++; return; }
+      nextRefs[row.site].push({ id: uid(), category: row.category || "", label: row.label, url: row.url || "" });
+      added.refs++;
+    });
+
+    var nextContractors = contractors.slice();
+    var nextContractorEmails = JSON.parse(JSON.stringify(contractorEmailMap || {}));
+    (inc.contractors || []).forEach(function(row){
+      var name = String(row.name || "").trim();
+      if(!name) return;
+      if(nextContractors.indexOf(name) === -1){ nextContractors.push(name); added.contractors++; }
+      if(row.email && !String(nextContractorEmails[name] || "").trim()) nextContractorEmails[name] = row.email;
+    });
+    nextContractors.sort();
+
+    if(apply){
+      issues = nextIssues;                 save(STORAGE_KEY, issues);
+      incidents = nextIncidents;           save(INCIDENTS_KEY, incidents);
+      siteDetails = nextDetails;           save(SITE_DETAILS_KEY, siteDetails);
+      siteRefs = nextRefs;                 save(SITE_REFS_KEY, siteRefs);
+      contractors = nextContractors;       save(CONTRACTORS_KEY, contractors);
+      contractorEmailMap = nextContractorEmails; save(CONTRACTOR_EMAIL_KEY, contractorEmailMap);
+      (inc.issues || []).forEach(function(r){ rememberSite(r.site); });
+      renderAll();
+    }
+    return { added: added, skipped: skipped };
+  }
+
+  /* Reads the CSV back out of the format "Export everything" writes, so the round trip is
+     export → edit in Excel → merge back. Blocks are found by their title line rather than
+     by blank-line separators, because parseCsvText drops empty rows. */
+  var MERGE_BLOCKS = [
+    { title: "ISSUES", key: "issues", map: { "Title":"title","Site":"site","Category":"category",
+      "Status":"status","Risk":"risk","Urgency":"urgency","Cost impact":"cost","Assigned":"assigned",
+      "Date reported":"dateReported","Target date":"targetDate","Resolved date":"resolvedDate",
+      "Cost estimate":"costEstimate","Actual cost":"actualCost","Tags":"tags","Description":"description" } },
+    { title: "INCIDENTS", key: "incidents", map: { "Ref":"ref","Date":"date","Time":"time","Venue":"site",
+      "Type":"type","Location":"location","Person type":"personType","Initials/role":"personRef",
+      "Reported on":"riddorReportedDate","HSE ref":"riddorRef","Investigation":"investigationStatus",
+      "What happened":"description","Injury/outcome":"injuryDetail","Immediate action":"immediateAction",
+      "Root cause":"rootCause","Actions":"actions","Reported by":"reportedBy" } },
+    { title: "COMPLIANCE REGISTER", key: "compliance", map: { "Venue":"site","Type":"type","Due":"due","Certificate link":"url" } },
+    { title: "CONTACTS", key: "contacts", map: { "Venue":"site","Name":"name","Role":"role","Phone":"phone","Email":"email" } },
+    { title: "SITE DETAILS", key: "siteDetails", map: { "Venue":"site","Address":"address","Square footage":"sqft",
+      "Landlord":"landlord","Tenants / sub-lets":"tenants","Casino Director":"casinoDirector",
+      "FM contractors":"fmContractors","Gaming licence ref":"licenceRef" } },
+    { title: "KEY LOCATIONS", key: "locations", map: { "Venue":"site","Label":"label","what3words":"words" } },
+    { title: "REFERENCE LINKS", key: "refs", map: { "Venue":"site","Category":"category","Label":"label","URL":"url" } },
+    { title: "CONTRACTORS", key: "contractors", map: { "Name":"name","Email on file":"email" } },
+    /* The export writes shorter lease headers than the on-screen field labels
+       ("Passing rent" vs "Passing rent (£/yr)"), so the round trip needs this explicit
+       map — matching on the labels alone silently dropped half the lease. Both spellings
+       are accepted: anything not listed here falls back to the LEASE_GROUPS label.
+       "SERVE NOTICE BY (derived)" is deliberately absent — it is calculated, not stored. */
+    { title: "LEASES", key: "leases", map: {
+      "Venue":"site","Landlord's agent":"landlordAgent","Our agent":"ourAgent","Demise":"demise",
+      "Term start":"startDate","Term expiry":"expiryDate","Passing rent":"passingRent",
+      "Security of tenure":"securityOfTenure","Break — whose option":"breakType",
+      "Break date":"breakDate","Notice months":"breakNoticeMonths","Break conditions":"breakConditions",
+      "Next review":"reviewDate","Review basis":"reviewBasis","Upward only":"reviewUpwardOnly",
+      "Review note":"reviewNote","Repairing obligation":"repairingObligation",
+      "Schedule of condition":"scheduleOfCondition","Dilaps provision":"dilapsProvision",
+      "Dilaps note":"dilapsNote","Alterations consent":"alterationsConsent","Alienation":"alienation",
+      "Permitted use":"useClause","Service charge":"serviceCharge","SC cap":"serviceChargeCap",
+      "SC year end":"serviceChargeYearEnd","Rateable value":"rateableValue",
+      "Rates appeal deadline":"ratesAppealDeadline","Lease document":"leaseDocUrl","Notes":"notes" }, leaseLabels: true }
+  ];
+
+  /* Header matching has to be forgiving. The CSVs that actually turn up are assembled by
+     hand or by Copilot from a report, so they arrive as "Cost Impact", "Assigned/Contractor",
+     "Cost Estimate (£)" rather than the exact export spelling. Normalising away case,
+     punctuation and any trailing unit in brackets costs nothing and avoids a silently
+     empty column — which is worse than a rejected file, because it looks like it worked. */
+  function normHeader(h){
+    return String(h || "").toLowerCase()
+      .replace(/\(.*?\)/g, " ")            // "Cost estimate (£)" -> "cost estimate"
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+  var HEADER_ALIASES = {
+    "assigned contractor": "assigned", "contractor": "assigned", "owner": "assigned",
+    "cost impact": "cost impact", "impact": "cost impact",
+    "date logged": "date reported", "reported": "date reported", "logged": "date reported",
+    "due": "target date", "due date": "target date", "target": "target date",
+    "estimate": "cost estimate", "quote": "cost estimate", "value": "cost estimate",
+    "venue": "site", "property": "site", "detail": "description", "details": "description",
+    "notes": "description", "summary": "description", "priority": "urgency", "severity": "risk"
+  };
+
+  /* Risk / urgency / cost are stored as 1-3 (see the f-risk select). A CSV written by a
+     human says Low / Medium / High. Accept either — and leave anything unrecognised alone
+     rather than guessing a severity. */
+  var WORD_SCORES = { low: "1", l: "1", minor: "1", medium: "2", med: "2", m: "2", moderate: "2",
+                      high: "3", h: "3", major: "3", critical: "3", severe: "3" };
+  /* Listed rather than pattern-matched: "dateReported" does not end in "Date", so a regex
+     on the suffix quietly skipped the one date most rows actually carry. */
+  var DATE_FIELDS = ["date","due","dateReported","targetDate","resolvedDate","riddorReportedDate",
+                     "startDate","expiryDate","breakDate","reviewDate","ratesAppealDeadline"];
+  function coerceField(field, val){
+    if(field === "risk" || field === "urgency" || field === "cost"){
+      var w = WORD_SCORES[String(val).toLowerCase().trim()];
+      if(w) return w;
+      var n = parseInt(val, 10);
+      return (n >= 1 && n <= 3) ? String(n) : "";
+    }
+    if(field === "costEstimate" || field === "actualCost"){
+      var num = String(val).replace(/[£$,\s]/g, "");
+      return /^-?\d+(\.\d+)?$/.test(num) ? num : "";
+    }
+    if(field === "category"){
+      var c = CATEGORIES.filter(function(x){ return normHeader(x) === normHeader(val); })[0];
+      return c || (CATEGORIES.indexOf(val) > -1 ? val : "Other");
+    }
+    if(field === "status"){
+      var s = STATUSES.filter(function(x){ return normHeader(x) === normHeader(val); })[0];
+      return s || "Open";
+    }
+    /* Dates: accept ISO, plus the two orderings Excel exports. Anything ambiguous is
+       dropped rather than guessed — a wrong target date drives the whole chase list. */
+    if(DATE_FIELDS.indexOf(field) > -1){
+      var v = String(val).trim();
+      if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      var m = v.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/);   // UK d/m/y
+      if(m) return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+      return "";
+    }
+    return val;
+  }
+
+  /* Resolve a CSV header to a field name for one block.
+     Order matters: the block's own header must win outright before any alias is tried.
+     Aliases are global, so "Venue" -> site and "Notes" -> description are right for an
+     ISSUES sheet and wrong for CONTACTS and LEASES, where those are the real column
+     names. Direct first, alias only as a fallback. */
+  function fieldForHeader(spec, h){
+    var n = normHeader(h);
+    function direct(name){
+      if(spec.map){
+        var hit = Object.keys(spec.map).filter(function(k){ return normHeader(k) === name; })[0];
+        if(hit) return spec.map[hit];
+      }
+      if(spec.leaseLabels){
+        var found = "";
+        LEASE_GROUPS.forEach(function(g){
+          g.fields.forEach(function(f){ if(!found && normHeader(f[1]) === name) found = f[0]; });
+        });
+        if(found) return found;
+      }
+      return "";
+    }
+    return direct(n) || (HEADER_ALIASES[n] ? direct(HEADER_ALIASES[n]) : "");
+  }
+
+  function parseMergeCsv(text){
+    var rows = parseCsvText(text);
+    var out = {}, i = 0;
+    var titles = MERGE_BLOCKS.map(function(b){ return b.title; });
+    function blockAt(r){
+      if(!r || r.length === 0) return null;
+      var first = String(r[0] || "").trim();
+      if(!first) return null;
+      if(r.slice(1).some(function(c){ return String(c || "").trim(); })) return null;  // a data row
+      var hit = titles.filter(function(t){ return first.toUpperCase().indexOf(t) === 0; })[0];
+      /* Any other ALL-CAPS single-cell line still counts as a boundary, so rows from a
+         block we don't import can't leak into the previous one. Deliberately not named
+         with leading/trailing double underscores — build.py rejects that shape as an
+         unsubstituted asset placeholder, comments included. */
+      return hit || (first === first.toUpperCase() && first.length > 3 ? "OTHER-BLOCK" : null);
+    }
+    while(i < rows.length){
+      var t = blockAt(rows[i]);
+      if(!t){ i++; continue; }
+      var spec = MERGE_BLOCKS.filter(function(b){ return b.title === t; })[0];
+      var headers = (rows[i + 1] || []).map(function(h){ return String(h || "").trim(); });
+      i += 2;
+      var recs = [];
+      while(i < rows.length && !blockAt(rows[i])){
+        var r = rows[i];
+        if(r.length === 1 && /^\(none recorded\)$/i.test(String(r[0] || "").trim())){ i++; continue; }
+        if(r.every(function(c){ return !String(c || "").trim(); })){ i++; continue; }
+        if(spec){
+          var rec = {};
+          headers.forEach(function(h, idx){
+            var val = (r[idx] === undefined ? "" : String(r[idx])).trim();
+            if(!val) return;
+            var field = fieldForHeader(spec, h);
+            if(!field) return;
+            var out2 = coerceField(field, val);
+            if(out2 !== "") rec[field] = out2;
+          });
+          if(Object.keys(rec).length) recs.push(rec);
+        }
+        i++;
+      }
+      if(spec && recs.length) out[spec.key] = (out[spec.key] || []).concat(recs);
+    }
+    return out;
+  }
+
+  /* A backup JSON carries the same records in the app's own shape; flatten it to the same
+     intermediate form so both file types go through one merge. */
+  function mergeShapeFromBackup(data){
+    var out = { issues: [], incidents: [], contacts: [], compliance: [], locations: [],
+                refs: [], leases: [], siteDetails: [], contractors: [] };
+    var ls = data.localState || {};
+    function readKey(k, fallback){
+      try { return ls[k] ? JSON.parse(ls[k]) : fallback; } catch(e){ return fallback; }
+    }
+    out.issues = (Array.isArray(data) ? data : (data.issues || readKey(STORAGE_KEY, [])));
+    out.incidents = readKey(INCIDENTS_KEY, []);
+    var sd = readKey(SITE_DETAILS_KEY, {});
+    Object.keys(sd).forEach(function(site){
+      var d = sd[site] || {};
+      var flat = { site: site };
+      SITE_DETAIL_FIELDS.forEach(function(f){ if(d[f[0]]) flat[f[0]] = d[f[0]]; });
+      out.siteDetails.push(flat);
+      (d.contacts || []).forEach(function(c){ out.contacts.push(Object.assign({ site: site }, c)); });
+      (d.compliance || []).forEach(function(c){ out.compliance.push(Object.assign({ site: site }, c)); });
+      (d.locations || []).forEach(function(l){ out.locations.push(Object.assign({ site: site }, l)); });
+      if(d.lease) out.leases.push(Object.assign({ site: site }, d.lease));
+    });
+    var sr = readKey(SITE_REFS_KEY, {});
+    Object.keys(sr).forEach(function(site){
+      (sr[site] || []).forEach(function(r){ out.refs.push(Object.assign({ site: site }, r)); });
+    });
+    var cs = readKey(CONTRACTORS_KEY, []);
+    var ce = readKey(CONTRACTOR_EMAIL_KEY, {});
+    cs.forEach(function(n){ out.contractors.push({ name: n, email: ce[n] || "" }); });
+    return out;
+  }
+
+  document.getElementById("mergeBtn").addEventListener("click", function(){
+    document.getElementById("mergeFile").click();
+  });
+  document.getElementById("mergeFile").addEventListener("change", function(e){
+    var file = e.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      var incoming;
+      try {
+        if(/\.json$/i.test(file.name)){
+          var data = JSON.parse(reader.result);
+          if(!Array.isArray(data) && Array.isArray(data.projects) && !data.issues && !data.localState){
+            showToast("That's a Project Board backup. Import it under Reports → Import."); return;
+          }
+          incoming = mergeShapeFromBackup(data);
+        } else {
+          incoming = parseMergeCsv(String(reader.result).replace(/^﻿/, ""));
+        }
+      } catch(err){
+        showToast("Couldn't read that file — expected a Ledger backup (.json) or an Export-everything (.csv).");
+        document.getElementById("mergeFile").value = ""; return;
+      }
+
+      var dry = mergeIncoming(incoming, false);   // count first, write nothing
+      var addLines = Object.keys(dry.added).filter(function(k){ return dry.added[k]; })
+        .map(function(k){ return dry.added[k] + " " + k; });
+      var skipTotal = Object.keys(dry.skipped).reduce(function(s, k){ return s + dry.skipped[k]; }, 0);
+
+      if(!addLines.length){
+        showToast(skipTotal ? ("Nothing new — all " + skipTotal + " row(s) are already in your ledger.")
+                            : "Nothing in that file could be read into the ledger.");
+        document.getElementById("mergeFile").value = ""; return;
+      }
+      confirmAction("Merge this in?",
+        "This will ADD: " + addLines.join(", ") + "." +
+        (skipTotal ? " " + skipTotal + " row(s) are already here and will be skipped." : "") +
+        " Nothing already in your ledger will be changed or removed.",
+        function(){
+          var res = mergeIncoming(incoming, true);
+          var n = Object.keys(res.added).reduce(function(s, k){ return s + res.added[k]; }, 0);
+          showToast("Merged — " + n + " item(s) added, nothing removed.");
+        });
+      document.getElementById("mergeFile").value = "";
+    };
+    reader.readAsText(file);
   });
 
   document.getElementById("importBtn").addEventListener("click", function(){

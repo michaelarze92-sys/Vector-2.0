@@ -1,0 +1,26 @@
+ISSUES
+Title,Site,Category,Status,Risk,Urgency,Cost impact,Assigned,Date reported,Target date,Resolved date,Cost estimate,Actual cost,Tags,Description
+
+INCIDENTS
+Ref,Date,Time,Venue,Type,Location,Person type,Initials/role,Reported on,HSE ref,Investigation,What happened,Injury/outcome,Immediate action,Root cause,Actions,Reported by
+
+COMPLIANCE REGISTER
+Venue,Type,Due,Certificate link
+
+CONTACTS
+Venue,Name,Role,Phone,Email
+
+SITE DETAILS
+Venue,Address,Square footage,Landlord,Tenants / sub-lets,Casino Director,FM contractors,Gaming licence ref
+
+KEY LOCATIONS
+Venue,Label,what3words
+
+REFERENCE LINKS
+Venue,Category,Label,URL
+
+CONTRACTORS
+Name,Email on file
+
+LEASES
+Venue,Landlord's agent,Our agent,Demise,Term start,Term expiry,Passing rent,Security of tenure,Break — whose option,Break date,Notice months,Break conditions,Next review,Review basis,Upward only,Review note,Repairing obligation,Schedule of condition,Dilaps provision,Dilaps note,Alterations consent,Alienation,Permitted use,Service charge,SC cap,SC year end,Rateable value,Rates appeal deadline,Lease document,Notes

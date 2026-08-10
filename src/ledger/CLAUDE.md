@@ -644,6 +644,67 @@ faithfully replaced the entire estate with nothing. The confirm did say "Importi
 issue(s)" — nowhere near loud enough. Both wrong-file cases are now refused before any
 confirm is offered, and the Project Board one names the control that does the right thing.
 
+## Merge — the third import, and the only additive one
+
+`mergeIncoming(inc, apply)` is the only way data enters the Ledger without anything leaving
+it. The contract, stated to the user in the confirm and enforced by `test_merge.js`:
+
+> Merge only ever **adds**. It never deletes a row, and never overwrites a field that
+> already has a value. Where both sides have something, **the device wins.**
+
+The central assertion in the test is therefore not "the new rows arrived" — it's
+"everything already there is unchanged afterwards". A merge that quietly replaced a lease
+term would be far worse than one that failed outright.
+
+`apply` is load-bearing: the function runs the **whole** merge to produce the preview and
+only writes when told to. Counting what *would* happen any other way drifts from what
+actually happens.
+
+### Two file types, one path
+
+`.csv` goes through `parseMergeCsv`, `.json` through `mergeShapeFromBackup` — both produce
+the same intermediate shape, so there is exactly one merge implementation. A backup JSON
+merged this way is **not** restored; that's still the separate REPLACES command.
+
+Blocks are found by their **title line**, not by blank-line separators: `parseCsvText`
+drops empty rows, so blank lines don't survive to be detected. Any unrecognised ALL-CAPS
+single-cell line also counts as a boundary, so rows from a block we don't import can't leak
+into the previous one.
+
+### Header matching: direct first, alias second
+
+`fieldForHeader` tries the block's own column names (normalised for case, punctuation and a
+trailing unit in brackets) *before* `HEADER_ALIASES`. Getting that order wrong is subtle and
+silent: the global alias `Venue → site` is right for ISSUES and wrong for CONTACTS, where
+`Venue` is the real column — and the symptom was a CONTACTS block that parsed to nothing
+while reporting success.
+
+`normHeader` stripping `(...)` is what lets `Cost Estimate (£)` land, and it's also why
+lease headers need the explicit map in `MERGE_BLOCKS`: the export writes `Passing rent`
+but the on-screen label is `Passing rent (£/yr)`. Matching on labels alone dropped half the
+lease on a round trip. `SERVE NOTICE BY (derived)` is deliberately absent from that map —
+it is calculated, never stored.
+
+### Coercion, and where it refuses to guess
+
+`coerceField` maps `Low/Medium/High` to the `1/2/3` the app stores, strips `£` and commas
+from money, and reads UK day-first dates. `DATE_FIELDS` is an explicit list rather than a
+`/Date$/` regex — `dateReported` doesn't end in "Date", so the regex skipped the one date
+most rows carry. An unparseable date is left **blank**, not guessed: a wrong target date
+drives the whole chase list.
+
+An issue with no venue is filed under `Portfolio-wide` rather than dropped — estate-wide
+actions (an unsigned MSA, a group budget review) are real, and silent loss is the failure
+mode this whole area exists to avoid.
+
+### Duplicate detection is exact, not fuzzy
+
+`sameIssue` is title + site, case-insensitive. Near-miss wording produces two rows. That's a
+deliberate choice — fuzzy matching that silently swallows a genuinely new issue is worse
+than a visible duplicate — but it means the **skip count in the preview is the user's
+check**, and the docs say so. See `docs/merge-import.md` and
+`docs/merge-import-template.csv`.
+
 ## Incidents and RIDDOR
 
 An incident is **not** an issue, and mixing them was the gap this closes: a slip on the
