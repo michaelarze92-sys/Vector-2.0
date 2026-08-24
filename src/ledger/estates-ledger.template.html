@@ -4832,6 +4832,20 @@
     var iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
     if(iso) return iso[1] + "-" + iso[2] + "-" + iso[3];
 
+    /* A bare day/month with no year: does "by 14 August" read as this year or next?
+       The naive rule — anything already past means next year — is right for a meeting
+       invite and actively harmful here. Most mail this parser sees is a chase about
+       something that has ALREADY slipped, so rolling a fortnight-old deadline forward
+       twelve months hides an overdue action for a year, which is the one outcome the
+       register exists to prevent. Only roll forward when the date is far enough back
+       that this year is implausible. */
+    var ROLL_FORWARD_AFTER_DAYS = 60;
+    function resolveBareYear(candidate, year){
+      var daysPast = (today - candidate) / 86400000;
+      if(daysPast > ROLL_FORWARD_AFTER_DAYS) candidate.setFullYear(year + 1);
+      return candidate;
+    }
+
     // UK date order (DD/MM), not US — this is a UK estate.
     var uk = text.match(/\b(\d{1,2})[\/.](\d{1,2})(?:[\/.](\d{2,4}))?\b/);
     if(uk){
@@ -4840,7 +4854,7 @@
         var y1 = uk[3] ? +uk[3] : today.getFullYear();
         if(y1 < 100) y1 += 2000;
         var c1 = new Date(y1, m1 - 1, d1);
-        if(!uk[3] && c1 < today) c1.setFullYear(y1 + 1);   // a bare date already past means next year
+        if(!uk[3]) resolveBareYear(c1, y1);
         return toISO(c1);
       }
     }
@@ -4849,14 +4863,14 @@
     if(dayMonth){
       var y2 = dayMonth[3] ? +dayMonth[3] : today.getFullYear();
       var c2 = new Date(y2, MONTH_NAMES.indexOf(dayMonth[2]), +dayMonth[1]);
-      if(!dayMonth[3] && c2 < today) c2.setFullYear(y2 + 1);
+      if(!dayMonth[3]) resolveBareYear(c2, y2);
       return toISO(c2);
     }
     var monthDay = lower.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/);
     if(monthDay){
       var y3 = monthDay[3] ? +monthDay[3] : today.getFullYear();
       var c3 = new Date(y3, MONTH_NAMES.indexOf(monthDay[1]), +monthDay[2]);
-      if(!monthDay[3] && c3 < today) c3.setFullYear(y3 + 1);
+      if(!monthDay[3]) resolveBareYear(c3, y3);
       return toISO(c3);
     }
     return "";
@@ -7019,8 +7033,13 @@
       var hasYear = /\b[0-9]{4}\b/.test(raw);
       var d = new Date(hasYear ? raw : (raw + " " + new Date().getFullYear()));
       if(!isNaN(d)){
-        if(!hasYear && d < new Date(new Date().toDateString())) d.setFullYear(d.getFullYear() + 1);
-        out.targetDate = d.toISOString().slice(0,10);
+        // Same reasoning as scanForDate: only roll a bare date forward when this year
+        // is implausible, so a deadline that slipped a fortnight ago stays overdue.
+        var midnight = new Date(new Date().toDateString());
+        if(!hasYear && (midnight - d) / 86400000 > 60) d.setFullYear(d.getFullYear() + 1);
+        // toISO, not toISOString: the latter converts to UTC, so an evening date in BST
+        // comes back as the day before.
+        out.targetDate = toISO(d);
       }
     }
     return out;

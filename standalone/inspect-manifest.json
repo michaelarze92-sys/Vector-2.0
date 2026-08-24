@@ -1,0 +1,16 @@
+{
+  "name": "Metropolitan Estates — Inspections",
+  "short_name": "Inspections",
+  "description": "Venue condition surveys, H&S audits and contractor quality checks, offline, with findings exported into the Estates Ledger.",
+  "start_url": "./inspection.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#123526",
+  "theme_color": "#123526",
+  "icons": [
+    { "src": "../icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "../icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "../icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
