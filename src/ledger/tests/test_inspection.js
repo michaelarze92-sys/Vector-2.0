@@ -64,12 +64,12 @@ const check = (label, ok, detail) => {
     (await page.getAttribute('[data-item="f4"] .seg > button:has-text("Fail")', 'aria-pressed')) === 'true');
 
   // an adverse answer must ask for the detail that makes it actionable
-  check('a Fail asks for a target date', await page.isVisible('[data-item="f4"] [data-target]'));
-  check('a Fail asks for an owner', await page.isVisible('[data-item="f4"] [data-owner]'));
-  check('a Pass does NOT demand a target date', !(await page.isVisible('[data-item="f1"] [data-target]')));
+  check('a Fail asks for a target date', await page.isVisible('[data-item="f4"] [data-ftarget]'));
+  check('a Fail asks for an owner', await page.isVisible('[data-item="f4"] [data-fowner]'));
+  check('a Pass does NOT demand a target date', !(await page.isVisible('[data-item="f1"] [data-ftarget]')));
 
-  await page.fill('[data-item="f4"] [data-note]', 'Canteen fire door threshold strip missing, door not latching');
-  await page.fill('[data-item="f4"] [data-owner]', 'Dalkia');
+  await page.fill('[data-item="f4"] [data-fnote]', 'Canteen fire door threshold strip missing, door not latching');
+  await page.fill('[data-item="f4"] [data-fowner]', 'Dalkia');
   await page.waitForTimeout(200);
 
   // ---------- N/A must not be counted as a pass ----------
@@ -87,7 +87,7 @@ const check = (label, ok, detail) => {
   // ---------- the note survived a page change ----------
   await page.click('#backToRun');
   await page.waitForTimeout(300);
-  const note = await page.inputValue('[data-item="f4"] [data-note]');
+  const note = await page.inputValue('[data-item="f4"] [data-fnote]');
   check('notes persist across navigation', /threshold strip/.test(note), note.slice(0, 40));
 
   // ---------- export for the Ledger ----------
@@ -156,10 +156,10 @@ const check = (label, ok, detail) => {
   await page.click('[data-item="vt3"] .seg > button:has-text("5")');   // escalator handrails
   await page.waitForTimeout(200);
   check('grade 5 explains what it means', /End of life/.test(await page.textContent('[data-item="vt3"]')));
-  check('grade 5 is treated as a finding', await page.isVisible('[data-item="vt3"] [data-target]'));
+  check('grade 5 is treated as a finding', await page.isVisible('[data-item="vt3"] [data-ftarget]'));
   await page.click('[data-item="vt1"] .seg > button:has-text("2")');
   await page.waitForTimeout(200);
-  check('grade 2 is not a finding', !(await page.isVisible('[data-item="vt1"] [data-target]')));
+  check('grade 2 is not a finding', !(await page.isVisible('[data-item="vt1"] [data-ftarget]')));
 
   await page.click('#toSummary');
   await page.waitForTimeout(400);

@@ -205,6 +205,17 @@
   .answer-extra { margin-top: 10px; padding-left: 10px; border-left: 3px solid var(--border-strong); }
   .answer-extra.adverse { border-left-color: var(--bad); }
 
+  .finding-card {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 12px; margin-top: 8px;
+    border-left: 3px solid var(--bad);
+  }
+  .finding-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .finding-head span { font-size: 12px; font-weight: 650; color: var(--ink-secondary); }
+  .finding-head button { margin-left: auto; }
+
   .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .thumb { position: relative; width: 68px; height: 68px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
   .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -861,21 +872,47 @@
 
   function responsesOf(insp) { return insp.responses || (insp.responses = {}); }
 
+  /* Migrate old single-note/photos-per-item responses to the findings-array format.
+     Runs once on load; the migration is idempotent. */
+  function migrateResponses(insp) {
+    var tpl = templateById(insp.templateId);
+    if (!tpl) return;
+    var res = responsesOf(insp);
+    Object.keys(res).forEach(function (k) {
+      var r = res[k];
+      if (r.findings) return;
+      if (!isAdverse(tpl.kind, r.value)) return;
+      r.findings = [];
+      if (r.note || (r.photos && r.photos.length) || r.target || r.owner) {
+        r.findings.push({
+          id: uid(), label: "", note: r.note || "",
+          photos: r.photos || [], target: r.target || "", owner: r.owner || ""
+        });
+        delete r.note; delete r.photos; delete r.target; delete r.owner;
+      }
+    });
+  }
+  state.inspections.forEach(migrateResponses);
+
   function stats(insp) {
     var tpl = templateById(insp.templateId);
     var res = responsesOf(insp);
-    var total = 0, answered = 0, scored = 0, adverse = 0, gradeSum = 0;
-    if (!tpl) return { total: 0, answered: 0, adverse: 0, pct: 0, score: null, scoreLabel: "" };
+    var total = 0, answered = 0, scored = 0, adverse = 0, gradeSum = 0, findingsCount = 0;
+    if (!tpl) return { total: 0, answered: 0, adverse: 0, findingsCount: 0, pct: 0, score: null, scoreLabel: "" };
     tpl.sections.forEach(function (sec) {
       sec.items.forEach(function (item) {
         total++;
-        var v = (res[item.id] || {}).value;
+        var r = res[item.id] || {};
+        var v = r.value;
         if (isAnswered(v)) answered++;
         if (countsToScore(tpl.kind, v)) {
           scored++;
           if (tpl.kind === "condition") gradeSum += Number(v);
         }
-        if (isAdverse(tpl.kind, v)) adverse++;
+        if (isAdverse(tpl.kind, v)) {
+          adverse++;
+          findingsCount += (r.findings || []).length;
+        }
       });
     });
     var score = null, scoreLabel = "";
@@ -888,6 +925,7 @@
     }
     return {
       total: total, answered: answered, scored: scored, adverse: adverse,
+      findingsCount: findingsCount,
       pct: total ? Math.round((answered / total) * 100) : 0,
       score: score, scoreLabel: scoreLabel
     };
@@ -908,10 +946,14 @@
       sec.items.forEach(function (item) {
         var r = res[item.id] || {};
         if (!isAdverse(tpl.kind, r.value)) return;
-        out.push({
-          sectionTitle: sec.title, cat: sec.cat, item: item,
-          value: r.value, note: r.note || "", photos: r.photos || [],
-          target: r.target || "", owner: r.owner || ""
+        var fl = r.findings || [];
+        fl.forEach(function (f, idx) {
+          out.push({
+            sectionTitle: sec.title, cat: sec.cat, item: item,
+            value: r.value, label: f.label || "", note: f.note || "",
+            photos: f.photos || [], target: f.target || "", owner: f.owner || "",
+            findingId: f.id, findingIndex: idx, totalFindings: fl.length
+          });
         });
       });
     });
@@ -1006,7 +1048,7 @@
           '<div class="grow">' +
             '<div class="insp-title">' + escapeHtml(i.site) + ' — ' + escapeHtml(tpl ? tpl.name : i.templateId) + '</div>' +
             '<div class="muted">' + escapeHtml(fmtDate(i.date)) + (i.inspector ? ' · ' + escapeHtml(i.inspector) : '') +
-              (s.adverse ? ' · <strong style="color:var(--bad)">' + s.adverse + ' finding' + (s.adverse === 1 ? '' : 's') + '</strong>' : '') +
+              (s.findingsCount ? ' · <strong style="color:var(--bad)">' + s.findingsCount + ' finding' + (s.findingsCount === 1 ? '' : 's') + '</strong>' : '') +
             '</div>' +
           '</div>' +
           '<span class="pill pill-' + tone + '">' + escapeHtml(badge) + '</span>' +
@@ -1042,7 +1084,7 @@
         '<button class="btn btn-sm" id="toSummary">Summary</button>' +
       '</div>' +
       '<div class="muted" style="margin-top:6px">' + s.answered + ' of ' + s.total + ' answered' +
-        (s.adverse ? ' · <strong style="color:var(--bad)">' + s.adverse + ' finding' + (s.adverse === 1 ? '' : 's') + '</strong>' : '') + '</div>' +
+        (s.findingsCount ? ' · <strong style="color:var(--bad)">' + s.findingsCount + ' finding' + (s.findingsCount === 1 ? '' : 's') + '</strong>' : '') + '</div>' +
       '<div class="meter"><i style="width:' + s.pct + '%"></i></div>' +
     '</div>';
 
@@ -1090,23 +1132,39 @@
       if (g) html += '<div class="item-guide" style="margin:6px 0 0"><strong>' + escapeHtml(g.name) + '</strong> — ' + escapeHtml(g.hint) + '</div>';
     }
 
-    if (isAnswered(r.value)) {
-      html += '<div class="answer-extra' + (adverse ? ' adverse' : '') + '">' +
-        '<textarea data-note placeholder="' + (adverse ? 'What is wrong, where exactly, and what needs doing' : 'Note (optional)') + '">' +
-          escapeHtml(r.note || "") + '</textarea>';
-      if (adverse) {
-        html += '<div class="row" style="margin-top:8px">' +
-          '<label class="field grow" style="margin:0;min-width:130px"><span>Target date</span>' +
-            '<input type="date" data-target value="' + escapeHtml(r.target || "") + '"></label>' +
-          '<label class="field grow" style="margin:0;min-width:130px"><span>Owner</span>' +
-            '<input type="text" data-owner placeholder="e.g. Dalkia" value="' + escapeHtml(r.owner || "") + '"></label>' +
+    if (isAnswered(r.value) && adverse) {
+      var fl = r.findings || [];
+      fl.forEach(function (f, idx) {
+        html += '<div class="finding-card" data-finding="' + f.id + '">' +
+          '<div class="finding-head">' +
+            '<span>Finding ' + (idx + 1) + '</span>' +
+            (fl.length > 1 ? '<button class="btn btn-sm btn-danger" data-rmfinding="' + f.id + '">Remove</button>' : '') +
+          '</div>' +
+          '<label class="field" style="margin:0 0 6px"><span>Defect</span>' +
+            '<input type="text" data-flabel placeholder="Short description — e.g. kitchen roof blister" value="' + escapeHtml(f.label || "") + '"></label>' +
+          '<textarea data-fnote placeholder="Detail — what is wrong, where exactly, what needs doing">' + escapeHtml(f.note || "") + '</textarea>' +
+          '<div class="row" style="margin-top:8px">' +
+            '<label class="field grow" style="margin:0;min-width:130px"><span>Target date</span>' +
+              '<input type="date" data-ftarget value="' + escapeHtml(f.target || "") + '"></label>' +
+            '<label class="field grow" style="margin:0;min-width:130px"><span>Owner</span>' +
+              '<input type="text" data-fowner placeholder="e.g. Dalkia" value="' + escapeHtml(f.owner || "") + '"></label>' +
+          '</div>' +
+          '<div class="row" style="margin-top:8px">' +
+            '<button class="btn btn-sm" data-fphoto="' + f.id + '">📷 Add photo</button>' +
+            '<span class="muted" data-fphotocount="' + f.id + '">' + (f.photos && f.photos.length ? f.photos.length + ' attached' : '') + '</span>' +
+          '</div>' +
+          '<div class="thumbs" data-fthumbs="' + f.id + '"></div>' +
         '</div>';
-      }
-      html += '<div class="row" style="margin-top:8px">' +
-        '<button class="btn btn-sm" data-photo>📷 Add photo</button>' +
-        '<span class="muted" data-photocount>' + ((r.photos || []).length ? (r.photos.length + " attached") : "") + '</span>' +
-      '</div>' +
-      '<div class="thumbs" data-thumbs></div>' +
+      });
+      html += '<button class="btn btn-sm" style="margin-top:8px" data-addfinding>+ Add another finding</button>';
+    } else if (isAnswered(r.value)) {
+      html += '<div class="answer-extra">' +
+        '<textarea data-note placeholder="Note (optional)">' + escapeHtml(r.note || "") + '</textarea>' +
+        '<div class="row" style="margin-top:8px">' +
+          '<button class="btn btn-sm" data-photo>📷 Add photo</button>' +
+          '<span class="muted" data-photocount>' + ((r.photos || []).length ? (r.photos.length + " attached") : "") + '</span>' +
+        '</div>' +
+        '<div class="thumbs" data-thumbs></div>' +
       '</div>';
     }
     html += '</div>';
@@ -1119,17 +1177,37 @@
     var res = responsesOf(insp);
     Array.prototype.forEach.call(document.querySelectorAll("[data-item]"), function (row) {
       var box = row.querySelector("[data-thumbs]");
-      if (!box) return;
-      var ids = (res[row.getAttribute("data-item")] || {}).photos || [];
-      box.innerHTML = "";
-      ids.forEach(function (pid) {
-        getPhoto(pid).then(function (src) {
-          if (!src) return;
-          var d = document.createElement("div");
-          d.className = "thumb";
-          d.innerHTML = '<img alt="">' + '<button type="button" data-rmphoto="' + escapeHtml(pid) + '" title="Remove">✕</button>';
-          d.querySelector("img").src = src;
-          box.appendChild(d);
+      if (box) {
+        var ids = (res[row.getAttribute("data-item")] || {}).photos || [];
+        box.innerHTML = "";
+        ids.forEach(function (pid) {
+          getPhoto(pid).then(function (src) {
+            if (!src) return;
+            var d = document.createElement("div");
+            d.className = "thumb";
+            d.innerHTML = '<img alt="">' + '<button type="button" data-rmphoto="' + escapeHtml(pid) + '" title="Remove">✕</button>';
+            d.querySelector("img").src = src;
+            box.appendChild(d);
+          });
+        });
+      }
+      Array.prototype.forEach.call(row.querySelectorAll("[data-fthumbs]"), function (fbox) {
+        var fid = fbox.getAttribute("data-fthumbs");
+        var r = res[row.getAttribute("data-item")] || {};
+        var fl = r.findings || [];
+        var f = null;
+        for (var i = 0; i < fl.length; i++) { if (fl[i].id === fid) { f = fl[i]; break; } }
+        if (!f) return;
+        fbox.innerHTML = "";
+        (f.photos || []).forEach(function (pid) {
+          getPhoto(pid).then(function (src) {
+            if (!src) return;
+            var d = document.createElement("div");
+            d.className = "thumb";
+            d.innerHTML = '<img alt="">' + '<button type="button" data-rmfphoto="' + escapeHtml(pid) + '" title="Remove">✕</button>';
+            d.querySelector("img").src = src;
+            fbox.appendChild(d);
+          });
         });
       });
     });
@@ -1156,7 +1234,7 @@
           '<b style="color:var(--' + (tone === "muted" ? "ink-muted" : tone) + ')">' +
             (s.score === null ? "—" : (tpl && tpl.kind === "condition" ? s.score.toFixed(1) : s.score + "%")) + '</b></div>' +
         '<div class="score-tile"><span class="eyebrow">Answered</span><b>' + s.answered + '<span class="muted" style="font-size:14px">/' + s.total + '</span></b></div>' +
-        '<div class="score-tile"><span class="eyebrow">Findings</span><b style="color:' + (s.adverse ? 'var(--bad)' : 'var(--ok)') + '">' + s.adverse + '</b></div>' +
+        '<div class="score-tile"><span class="eyebrow">Findings</span><b style="color:' + (f.length ? 'var(--bad)' : 'var(--ok)') + '">' + f.length + '</b></div>' +
         '<div class="score-tile"><span class="eyebrow">Scored items</span><b>' + s.scored + '</b></div>' +
       '</div>';
 
@@ -1171,12 +1249,13 @@
       html += '<div class="empty">No adverse findings recorded.</div>';
     } else {
       html += '<div class="table-scroll"><table class="rep"><thead><tr>' +
-        '<th>Area</th><th>Item</th><th>Result</th><th>Note</th><th>Target</th><th>Owner</th>' +
+        '<th>Area</th><th>Item</th><th>Defect</th><th>Result</th><th>Note</th><th>Target</th><th>Owner</th>' +
         '</tr></thead><tbody>' +
         f.map(function (x) {
           return '<tr>' +
             '<td>' + escapeHtml(x.sectionTitle) + '</td>' +
             '<td>' + escapeHtml(x.item.text) + '</td>' +
+            '<td>' + escapeHtml(x.label) + '</td>' +
             '<td><span class="pill pill-bad">' + escapeHtml(resultLabel(tpl.kind, x.value)) + '</span></td>' +
             '<td>' + escapeHtml(x.note) + (x.photos.length ? ' <span class="muted">(' + x.photos.length + ' photo)</span>' : '') + '</td>' +
             '<td>' + escapeHtml(fmtDate(x.target)) + '</td>' +
@@ -1190,14 +1269,14 @@
     html += '<div class="card no-print"><span class="eyebrow">Output</span>' +
       '<div class="row">' +
         '<button class="btn btn-primary" id="expLedger">Export findings for the Ledger (.csv)</button>' +
+        '<button class="btn" id="expJobs">Contractor job list (.csv)</button>' +
         '<button class="btn" id="expCsv">Full results (.csv)</button>' +
         '<button class="btn" id="printBtn">Print / save as PDF</button>' +
       '</div>' +
       '<div class="muted" style="margin-top:10px">' +
-        'The Ledger export is an <strong>ISSUES</strong> block. In the Estates Ledger open ⋮ → ' +
-        '<strong>Merge in data</strong> and pick this file — it only ever adds, and anything already ' +
-        'on the register with the same title and venue is skipped. Photos stay in this app; ' +
-        'use Print / save as PDF for the evidence pack.' +
+        '<strong>Ledger export</strong> — ISSUES block for ⋮ → Merge in data. Only adds, skips duplicates. ' +
+        '<strong>Contractor job list</strong> — one row per defect, hand straight to Dalkia to raise on Aurora. ' +
+        'Photos stay in this app; use Print / save as PDF for the evidence pack.' +
       '</div></div>';
     return html;
   }
@@ -1241,7 +1320,10 @@
      same defect found on a re-inspection has to produce the identical title or it
      lands twice. Area + item text does that; the note deliberately does not appear. */
   function ledgerTitle(x) {
-    return x.sectionTitle + " — " + x.item.text;
+    var base = x.sectionTitle + " — " + x.item.text;
+    if (x.label) return base + " — " + x.label;
+    if (x.totalFindings > 1) return base + " (" + (x.findingIndex + 1) + ")";
+    return base;
   }
 
   function exportLedgerCsv(insp) {
@@ -1253,7 +1335,7 @@
     var rows = f.map(function (x) {
       var sev = severityFor(tpl.kind, x.value);
       var target = x.target || addDaysISO(insp.date || todayISO(), targetDaysFor(tpl.kind, x.value));
-      var desc = resultLabel(tpl.kind, x.value) + "." +
+      var desc = (x.label ? x.label + ". " : "") + resultLabel(tpl.kind, x.value) + "." +
         (x.note ? " " + x.note : "") +
         " [" + tpl.name + ", " + insp.site + ", " + fmtDate(insp.date) +
         (insp.inspector ? ", " + insp.inspector : "") + "]" +
@@ -1273,16 +1355,26 @@
   function exportFullCsv(insp) {
     var tpl = templateById(insp.templateId);
     var res = responsesOf(insp);
-    var rows = [["Area", "Item", "Result", "Adverse", "Note", "Target", "Owner", "Photos"]];
+    var rows = [["Area", "Item", "Result", "Adverse", "Defect", "Note", "Target", "Owner", "Photos"]];
     tpl.sections.forEach(function (sec) {
       sec.items.forEach(function (item) {
         var r = res[item.id] || {};
-        rows.push([
-          sec.title, item.text,
-          isAnswered(r.value) ? resultLabel(tpl.kind, r.value) : "",
-          isAdverse(tpl.kind, r.value) ? "Yes" : "",
-          r.note || "", r.target || "", r.owner || "", (r.photos || []).length || ""
-        ]);
+        if (isAdverse(tpl.kind, r.value) && r.findings && r.findings.length) {
+          r.findings.forEach(function (f) {
+            rows.push([
+              sec.title, item.text, resultLabel(tpl.kind, r.value), "Yes",
+              f.label || "", f.note || "", f.target || "", f.owner || "",
+              (f.photos || []).length || ""
+            ]);
+          });
+        } else {
+          rows.push([
+            sec.title, item.text,
+            isAnswered(r.value) ? resultLabel(tpl.kind, r.value) : "",
+            isAdverse(tpl.kind, r.value) ? "Yes" : "",
+            "", r.note || "", "", "", (r.photos || []).length || ""
+          ]);
+        }
       });
     });
     var head = [
@@ -1291,6 +1383,29 @@
     ];
     download("inspection-" + slug(insp.site) + "-" + slug(tpl.id) + "-" + (insp.date || todayISO()) + ".csv",
              csvRows(head.concat(rows)) + "\r\n");
+  }
+
+  function exportContractorCsv(insp) {
+    var tpl = templateById(insp.templateId);
+    var f = findings(insp);
+    if (!f.length) { showToast("No findings to export."); return; }
+    var header = ["Ref", "Venue", "Location", "Defect", "Description", "Priority",
+                  "Target date", "Owner", "Photos", "Source"];
+    var rows = f.map(function (x, i) {
+      var sev = severityFor(tpl.kind, x.value);
+      var target = x.target || addDaysISO(insp.date || todayISO(), targetDaysFor(tpl.kind, x.value));
+      var defect = x.label || x.item.text;
+      var desc = (x.note ? x.note + " " : "") + "(" + resultLabel(tpl.kind, x.value) + ")";
+      return [
+        String(i + 1), insp.site, x.sectionTitle + " — " + x.item.text,
+        defect, desc, sev, target, x.owner || "",
+        x.photos.length ? x.photos.length + " in app" : "",
+        tpl.name + ", " + fmtDate(insp.date)
+      ];
+    });
+    download("jobs-" + slug(insp.site) + "-" + (insp.date || todayISO()) + ".csv",
+             csvRows([header].concat(rows)) + "\r\n");
+    showToast(f.length + " job(s) exported for the contractor.");
   }
 
   /* ======================================================================
@@ -1436,9 +1551,13 @@
     var res = responsesOf(insp);
 
     function recordFor(itemId) {
-      if (!res[itemId]) res[itemId] = { photos: [] };
-      if (!res[itemId].photos) res[itemId].photos = [];
+      if (!res[itemId]) res[itemId] = {};
       return res[itemId];
+    }
+    function findingById(rec, fid) {
+      var fl = rec.findings || [];
+      for (var i = 0; i < fl.length; i++) { if (fl[i].id === fid) return fl[i]; }
+      return null;
     }
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-item]"), function (row) {
@@ -1448,7 +1567,22 @@
         b.addEventListener("click", function () {
           var rec = recordFor(itemId);
           var v = b.getAttribute("data-val");
-          rec.value = (String(rec.value) === String(v)) ? "" : v;   // tap again to clear
+          var wasAdverse = isAdverse(tpl.kind, rec.value);
+          rec.value = (String(rec.value) === String(v)) ? "" : v;
+          var nowAdverse = isAdverse(tpl.kind, rec.value);
+          if (nowAdverse && !wasAdverse) {
+            if (!rec.findings) rec.findings = [];
+            if (rec.note || (rec.photos && rec.photos.length)) {
+              rec.findings.unshift({
+                id: uid(), label: "", note: rec.note || "",
+                photos: rec.photos || [], target: rec.target || "", owner: rec.owner || ""
+              });
+              delete rec.note; delete rec.photos; delete rec.target; delete rec.owner;
+            }
+            if (rec.findings.length === 0) {
+              rec.findings.push({ id: uid(), label: "", note: "", photos: [], target: "", owner: "" });
+            }
+          }
           save();
           rerunPreservingScroll();
         });
@@ -1458,26 +1592,81 @@
       if (note) {
         note.addEventListener("input", function () { recordFor(itemId).note = note.value; save(); });
       }
-      var target = row.querySelector("[data-target]");
-      if (target) {
-        target.addEventListener("change", function () { recordFor(itemId).target = target.value; save(); });
-      }
-      var owner = row.querySelector("[data-owner]");
-      if (owner) {
-        owner.addEventListener("input", function () { recordFor(itemId).owner = owner.value; save(); });
-      }
       var photoBtn = row.querySelector("[data-photo]");
       if (photoBtn) {
-        photoBtn.addEventListener("click", function () { requestPhoto(itemId); });
+        photoBtn.addEventListener("click", function () {
+          pendingPhotoTarget = { type: "item", itemId: itemId };
+          photoInput.value = ""; photoInput.click();
+        });
       }
       row.addEventListener("click", function (e) {
         var rm = e.target.closest ? e.target.closest("[data-rmphoto]") : null;
         if (!rm) return;
         var pid = rm.getAttribute("data-rmphoto");
         var rec = recordFor(itemId);
+        if (!rec.photos) rec.photos = [];
         rec.photos = rec.photos.filter(function (p) { return p !== pid; });
         save();
         deletePhoto(pid).then(function () { rerunPreservingScroll(); });
+      });
+
+      Array.prototype.forEach.call(row.querySelectorAll("[data-finding]"), function (card) {
+        var fid = card.getAttribute("data-finding");
+        var flabel = card.querySelector("[data-flabel]");
+        if (flabel) flabel.addEventListener("input", function () {
+          var f = findingById(recordFor(itemId), fid);
+          if (f) { f.label = flabel.value; save(); }
+        });
+        var fnote = card.querySelector("[data-fnote]");
+        if (fnote) fnote.addEventListener("input", function () {
+          var f = findingById(recordFor(itemId), fid);
+          if (f) { f.note = fnote.value; save(); }
+        });
+        var ftarget = card.querySelector("[data-ftarget]");
+        if (ftarget) ftarget.addEventListener("change", function () {
+          var f = findingById(recordFor(itemId), fid);
+          if (f) { f.target = ftarget.value; save(); }
+        });
+        var fowner = card.querySelector("[data-fowner]");
+        if (fowner) fowner.addEventListener("input", function () {
+          var f = findingById(recordFor(itemId), fid);
+          if (f) { f.owner = fowner.value; save(); }
+        });
+        var fphotoBtn = card.querySelector("[data-fphoto]");
+        if (fphotoBtn) fphotoBtn.addEventListener("click", function () {
+          pendingPhotoTarget = { type: "finding", itemId: itemId, findingId: fid };
+          photoInput.value = ""; photoInput.click();
+        });
+        var rmBtn = card.querySelector("[data-rmfinding]");
+        if (rmBtn) rmBtn.addEventListener("click", function () {
+          var rec = recordFor(itemId);
+          var f = findingById(rec, fid);
+          if (!f) return;
+          var pids = f.photos || [];
+          rec.findings = rec.findings.filter(function (x) { return x.id !== fid; });
+          save();
+          Promise.all(pids.map(deletePhoto)).then(function () { rerunPreservingScroll(); });
+        });
+        card.addEventListener("click", function (e) {
+          var rm = e.target.closest ? e.target.closest("[data-rmfphoto]") : null;
+          if (!rm) return;
+          var pid = rm.getAttribute("data-rmfphoto");
+          var f = findingById(recordFor(itemId), fid);
+          if (f) {
+            f.photos = (f.photos || []).filter(function (p) { return p !== pid; });
+            save();
+            deletePhoto(pid).then(function () { rerunPreservingScroll(); });
+          }
+        });
+      });
+
+      var addBtn = row.querySelector("[data-addfinding]");
+      if (addBtn) addBtn.addEventListener("click", function () {
+        var rec = recordFor(itemId);
+        if (!rec.findings) rec.findings = [];
+        rec.findings.push({ id: uid(), label: "", note: "", photos: [], target: "", owner: "" });
+        save();
+        rerunPreservingScroll();
       });
     });
 
@@ -1503,7 +1692,12 @@
     document.getElementById("deleteBtn").addEventListener("click", function () {
       confirmAction("Delete this inspection and its photos? This cannot be undone.", function () {
         var ids = [];
-        Object.keys(res).forEach(function (k) { (res[k].photos || []).forEach(function (p) { ids.push(p); }); });
+        Object.keys(res).forEach(function (k) {
+          (res[k].photos || []).forEach(function (p) { ids.push(p); });
+          (res[k].findings || []).forEach(function (f) {
+            (f.photos || []).forEach(function (p) { ids.push(p); });
+          });
+        });
         state.inspections = state.inspections.filter(function (i) { return i.id !== insp.id; });
         save();
         Promise.all(ids.map(deletePhoto)).then(function () { go("home"); });
@@ -1533,6 +1727,7 @@
     if (!insp) return;
     document.getElementById("backToRun").addEventListener("click", function () { go("run", insp.id); });
     document.getElementById("expLedger").addEventListener("click", function () { exportLedgerCsv(insp); });
+    document.getElementById("expJobs").addEventListener("click", function () { exportContractorCsv(insp); });
     document.getElementById("expCsv").addEventListener("click", function () { exportFullCsv(insp); });
     document.getElementById("printBtn").addEventListener("click", function () { window.print(); });
   }
@@ -1545,20 +1740,14 @@
      row asked, because the change event has no idea.
      ====================================================================== */
 
-  var pendingPhotoItem = null;
+  var pendingPhotoTarget = null;
   var photoInput = document.getElementById("photoFile");
-
-  function requestPhoto(itemId) {
-    pendingPhotoItem = itemId;
-    photoInput.value = "";
-    photoInput.click();
-  }
 
   photoInput.addEventListener("change", function (e) {
     var file = e.target.files[0];
-    var itemId = pendingPhotoItem;
-    pendingPhotoItem = null;
-    if (!file || !itemId) return;
+    var target = pendingPhotoTarget;
+    pendingPhotoTarget = null;
+    if (!file || !target) return;
     var insp = inspectionById(state.ui.openId);
     if (!insp) return;
 
@@ -1567,9 +1756,22 @@
       var pid = uid();
       return putPhoto(pid, dataUrl).then(function () {
         var res = responsesOf(insp);
-        if (!res[itemId]) res[itemId] = { photos: [] };
-        if (!res[itemId].photos) res[itemId].photos = [];
-        res[itemId].photos.push(pid);
+        if (target.type === "finding") {
+          var rec = res[target.itemId];
+          if (!rec) return;
+          var fl = rec.findings || [];
+          for (var i = 0; i < fl.length; i++) {
+            if (fl[i].id === target.findingId) {
+              if (!fl[i].photos) fl[i].photos = [];
+              fl[i].photos.push(pid);
+              break;
+            }
+          }
+        } else {
+          if (!res[target.itemId]) res[target.itemId] = {};
+          if (!res[target.itemId].photos) res[target.itemId].photos = [];
+          res[target.itemId].photos.push(pid);
+        }
         save();
         rerunPreservingScroll();
         showToast("Photo attached.");
