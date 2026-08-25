@@ -2,6 +2,7 @@
   "name": "Metropolitan Estates — Inspections",
   "short_name": "Inspections",
   "description": "Venue condition surveys, H&S audits and contractor quality checks, offline, with findings exported into the Estates Ledger.",
+  "id": "https://michaelarze92-sys.github.io/Vector-2.0/standalone/inspection.html",
   "start_url": "./inspection.html",
   "scope": "./",
   "display": "standalone",
