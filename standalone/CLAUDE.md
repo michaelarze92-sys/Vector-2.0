@@ -21,7 +21,7 @@ order. Grep for `====` to jump between them:
 | GANTT | The custom Gantt: zoom levels, drag-to-reschedule, dependency lines, milestones. `renderTaskRow` and `startDrag` are the two functions to understand before touching this. |
 | KANBAN BOARD | `renderKanban()` + `bindKanbanEvents()` — four status columns, HTML5 drag-and-drop between them, filters by project/venue/owner persisted in `state.ui.kanbanFilter`. Same tasks as the Gantt, flow view instead of timeline. |
 | PROJECTS LIST & DETAIL | The project list page and per-project detail page: Tasks, then the eleven project logs (see below) — the original nine plus `stageGateLog`/`ribaStageLog`. |
-| BUDGET / CALENDAR / DATA & BACKUP | Mostly self-contained; Calendar also pulls subtask due dates in, same pattern as Dashboard. |
+| BUDGET / CALENDAR / DATA & BACKUP | Mostly self-contained; Calendar also pulls subtask due dates in, same pattern as Dashboard. Data & Backup includes the CSV-import wizard (`csvImport` state, `parseCSV`/`autoGuessMapping`/`commitCsvImport` — see "CSV import" further down) alongside the JSON backup import. |
 | PAGE DISPATCH | `renderPage()` — full re-render of `#content` on every state change, then `bindPageEvents()` re-attaches listeners. No virtual DOM, no diffing. If you add a page, register it in both `PAGES`/dispatch and add its bindings here. |
 | TASK MODAL / PROJECT MODAL / COST MODAL | `<dialog>`-based modals, built fresh (innerHTML) each time they open. |
 | INIT | The only code that runs outside a function — `renderNav()` + `renderPage()` on load. |
@@ -306,6 +306,56 @@ Friday", explicit dates), not to replace judgement. If this needs to get smarter
 the natural next step is the Power Automate bridge already discussed with the user
 (tag/flag an email in Outlook → logged to a CSV/Excel/SharePoint list → import that),
 not more regex here.
+
+## CSV import (tasks) — "Import tasks from CSV" on the Data & Backup page
+
+For a colleague's spreadsheet tracker — a recurring need, unlike the JSON backup
+import above which only round-trips this app's own export. **CSV only, not native
+`.xlsx`**: a real Excel file is a binary zipped-XML format, not realistic to parse in
+hand-written vanilla JS with no build step and no external libraries (the same CSP
+constraint that keeps everything else in this file dependency-free). The expected path
+is export-to-CSV first (Excel/Sheets: File → Save As / Download → CSV).
+
+Imports at **task** level only, not project level — a tracker is almost always one row
+per task/action, and projects are few enough that adding one by hand is simpler than a
+second importer for them. A row naming a project that doesn't exist yet gets one
+created automatically, always **flagged in the preview** ("N new projects will be
+created: ..."), never silently.
+
+Flow: pick a file (`handleCsvFile`) → `parseCSV()` splits it into headers + rows →
+`autoGuessMapping()` best-guesses which CSV column maps to which task field by header
+name → the wizard (`csvImport`, module-level like `editingLogEntry`, cleared on `go()`)
+renders a mapping UI + live preview → `commitCsvImport()` only runs once the person
+clicks Import. Nothing is written to `state` before that click.
+
+Things that matter if this gets touched again:
+
+- **`parseCSV()` is hand-written, not `text.split(",")`.** A real spreadsheet export
+  routinely has commas and even embedded newlines inside quoted fields (`"Chiller
+  replacement, Phase 2"`), and a naive split silently shreds those into the wrong
+  columns. It's a small RFC4180-ish state machine (quote-aware, handles `""` as an
+  escaped quote, strips a UTF-8 BOM Excel likes to prepend).
+- **`autoGuessMapping()` tracks claimed columns** (a `used` `Set`) so two fields can't
+  both silently auto-guess onto the same CSV column — e.g. a lone "Description" header
+  could otherwise satisfy both the task-name guess and the notes guess. The person can
+  still deliberately map two fields to the same column by hand; only the *automatic*
+  guess is prevented from colliding.
+- **`parseFlexibleDate()` never guesses wrong on purpose — it returns `null` and the
+  date is left blank**, flagged in the preview, rather than silently picking a
+  plausible-looking wrong date. Same "don't invent data" rule as the rest of this file.
+  Handles ISO, and disambiguates D/M/Y-ish input assuming UK day/month/year when both
+  numbers are ≤12 (genuinely ambiguous either way — this just has to pick one).
+- **`normalizeStatus()` only shows its "(from ...)" provenance note when the source
+  text *didn't* match a known synonym** and got defaulted to "Not Started" — a
+  recognized synonym like "Stuck" → Blocked shows the clean chip with no annotation,
+  since there's nothing uncertain about it. Don't show the annotation unconditionally;
+  it should mean "this was a guess," not "this was translated."
+- **Required-field guard**: Import stays disabled until "Task name" is mapped to a
+  column — the one field that can't be defaulted or left blank.
+
+`tests/test_csv_import.js` covers all of the above, including the quoted-comma case,
+both date formats plus a deliberately-bad date, an unrecognized status word, linking to
+vs. duplicating an existing project, and the blank-name-row-gets-skipped case.
 
 ## Testing
 

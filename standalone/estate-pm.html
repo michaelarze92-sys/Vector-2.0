@@ -460,6 +460,8 @@
   .kb-card.overdue { border-left: 3px solid var(--st-blocked); }
   .kb-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .kb-filters select { border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 7px 9px; font-size: 12.5px; font-family: inherit; }
+  .csv-map-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .csv-map-grid select { width: 100%; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 8px 9px; font-size: 12.5px; font-family: inherit; }
   .gov-day { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-secondary); }
   .gov-day input { flex: none; width: 58px; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 6px 8px; font-size: 12.5px; font-family: inherit; }
 
@@ -796,6 +798,9 @@
   // viewingProjectId, and must never survive a project switch (cleared in viewProject()
   // and go()) or it'd point at a record from a different project after navigating away.
   let editingLogEntry = null; // { key, id } | null
+  // CSV-import wizard state (file picked -> column mapping -> preview -> commit).
+  // Also UI-only, same treatment as editingLogEntry — cleared on nav away from Data page.
+  let csvImport = null; // { fileName, headers, rows, mapping: { fieldKey: colIndex } } | null
   function editingRecord(key) {
     return editingLogEntry && editingLogEntry.key === key ? (state[key] || []).find(r => r.id === editingLogEntry.id) : null;
   }
@@ -818,7 +823,7 @@
     `;
   }
 
-  function go(pageId) { activePage = pageId; editingLogEntry = null; renderNav(); renderPage(); closeNav(); }
+  function go(pageId) { activePage = pageId; editingLogEntry = null; csvImport = null; renderNav(); renderPage(); closeNav(); }
   function viewProject(id) { viewingProjectId = id; activePage = "project-detail"; editingLogEntry = null; renderNav(); renderPage(); closeNav(); }
 
   document.getElementById("navList").addEventListener("click", (e) => {
@@ -1873,6 +1878,233 @@
     });
   }
 
+  /* ============================== CSV IMPORT (tasks) ============================== */
+  // For a colleague's spreadsheet tracker — a recurring need, unlike the one-off JSON
+  // backup import above. CSV only, not native .xlsx: this file has no build step and no
+  // external libraries (Artifact CSP blocks CDN script fetches), and a real .xlsx is a
+  // binary zipped-XML format that isn't realistic to parse in hand-written vanilla JS.
+  // Exporting a spreadsheet to CSV first is the expected path.
+  //
+  // Imports at task level, not project level. A tracker is almost always one row per
+  // task/action; projects are few enough that "New project" by hand is simpler than a
+  // second importer. A CSV row naming a project that doesn't exist yet gets one created
+  // automatically (flagged in the preview, never silent) rather than being dropped.
+  const CSV_TASK_FIELDS = [
+    { key: "name", label: "Task name", required: true, synonyms: ["task", "task name", "name", "title", "action", "item"] },
+    { key: "projectName", label: "Project", synonyms: ["project", "job", "job name"] },
+    { key: "venueName", label: "Venue / Site", synonyms: ["venue", "site", "location"] },
+    { key: "ownerName", label: "Owner", synonyms: ["owner", "assignee", "assigned to", "responsible", "who"] },
+    { key: "ownerEmail", label: "Owner email", synonyms: ["email", "e-mail", "owner email"] },
+    { key: "dueDate", label: "Due date", synonyms: ["due date", "due", "deadline", "target date"] },
+    { key: "startDate", label: "Start date", synonyms: ["start date", "start"] },
+    { key: "status", label: "Status", synonyms: ["status", "state"] },
+    { key: "priority", label: "Priority", synonyms: ["priority", "urgency"] },
+    { key: "notes", label: "Notes", synonyms: ["notes", "comment", "comments", "description"] },
+  ];
+  const STATUS_SYNONYMS = [
+    { value: "Done", words: ["done", "complete", "completed", "closed", "finished"] },
+    { value: "Blocked", words: ["blocked", "on hold", "hold", "stuck", "delayed", "at risk"] },
+    { value: "In Progress", words: ["in progress", "progress", "ongoing", "underway", "started", "wip"] },
+    { value: "Not Started", words: ["not started", "todo", "to do", "open", "new", "pending"] },
+  ];
+
+  // Hand-written, not text.split(","): a real spreadsheet export routinely has commas
+  // and even embedded newlines inside quoted fields ("Chiller replacement, Phase 2"),
+  // and a naive split silently shreds those rows into the wrong columns.
+  function parseCSV(text) {
+    text = text.replace(/^﻿/, ""); // strip a UTF-8 BOM, which Excel exports include
+    const rows = []; let row = [], field = "", inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+        else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\r") { /* no-op, \n below closes the row */ }
+      else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else field += c;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    while (rows.length && rows[rows.length - 1].every(c => c.trim() === "")) rows.pop();
+    const headers = (rows.shift() || []).map(h => h.trim());
+    return { headers, rows };
+  }
+
+  function guessColumn(headers, synonyms, used) {
+    const lower = headers.map(h => h.toLowerCase().trim());
+    for (const syn of synonyms) { const i = lower.findIndex((h, idx) => h === syn && !used.has(idx)); if (i >= 0) return i; }
+    for (const syn of synonyms) { const i = lower.findIndex((h, idx) => h.includes(syn) && !used.has(idx)); if (i >= 0) return i; }
+    return -1;
+  }
+  function autoGuessMapping(headers) {
+    const used = new Set(); const mapping = {};
+    CSV_TASK_FIELDS.forEach(f => {
+      const idx = guessColumn(headers, f.synonyms, used);
+      mapping[f.key] = idx; if (idx >= 0) used.add(idx);
+    });
+    return mapping;
+  }
+  function normalizeStatus(raw) {
+    const v = (raw || "").toLowerCase().trim();
+    if (!v) return { status: "Not Started", matched: false };
+    for (const g of STATUS_SYNONYMS) if (g.words.includes(v)) return { status: g.value, matched: true };
+    for (const g of STATUS_SYNONYMS) if (g.words.some(w => v.includes(w))) return { status: g.value, matched: true };
+    return { status: "Not Started", matched: false };
+  }
+  function isoIfValidYMD(y, mo, d) {
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    const dt = new Date(y, mo - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+    return toISO(dt);
+  }
+  // Never guesses silently wrong — an ambiguous or unparseable date returns null and
+  // stays blank (the preview flags it) rather than defaulting to some plausible-looking
+  // date, same "don't invent data" rule as everywhere else this app imports from.
+  function parseFlexibleDate(raw) {
+    raw = (raw || "").trim();
+    if (!raw) return null;
+    let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return isoIfValidYMD(+m[1], +m[2], +m[3]);
+    m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if (m) {
+      let [, d, mo, y] = m.map(Number); if (y < 100) y += 2000;
+      if (d > 12 && mo <= 12) return isoIfValidYMD(y, mo, d);
+      if (mo > 12 && d <= 12) return isoIfValidYMD(y, d, mo); // swapped US-style input, still recoverable
+      return isoIfValidYMD(y, mo, d); // ambiguous both <=12 — assume UK day/month/year
+    }
+    const dt = new Date(raw);
+    if (!isNaN(dt.getTime()) && dt.getFullYear() > 1990 && dt.getFullYear() < 2100) return toISO(dt);
+    return null;
+  }
+
+  function buildTaskFromRow(row, mapping) {
+    const get = (key) => { const i = mapping[key]; return i >= 0 && i != null ? (row[i] || "").trim() : ""; };
+    const rawDue = get("dueDate"), rawStatus = get("status"), rawPriority = get("priority");
+    const statusResult = normalizeStatus(rawStatus);
+    const matchedPriority = PRIORITIES.find(p => p.toLowerCase() === rawPriority.toLowerCase());
+    return {
+      name: get("name"), projectName: get("projectName"), venueName: get("venueName"),
+      ownerName: get("ownerName"), ownerEmail: get("ownerEmail"),
+      dueDate: parseFlexibleDate(rawDue), _dueDateRaw: rawDue,
+      startDate: parseFlexibleDate(get("startDate")),
+      status: statusResult.status, _statusMatched: statusResult.matched, _statusRaw: rawStatus,
+      priority: matchedPriority || "Medium", notes: get("notes"),
+    };
+  }
+
+  function handleCsvFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const { headers, rows } = parseCSV(String(reader.result));
+        if (!headers.length || !rows.length) { toast("That CSV looks empty"); return; }
+        csvImport = { fileName: file.name, headers, rows, mapping: autoGuessMapping(headers) };
+        renderPage();
+      } catch (e) { toast("Couldn't read that file as CSV"); }
+    };
+    reader.readAsText(file);
+  }
+
+  function commitCsvImport() {
+    if (!csvImport || csvImport.mapping.name < 0) return;
+    let createdProjects = 0, createdTasks = 0, skipped = 0;
+    csvImport.rows.forEach(row => {
+      const t = buildTaskFromRow(row, csvImport.mapping);
+      if (!t.name) { skipped++; return; }
+      let projectId = null, venueId = null;
+      if (t.projectName) {
+        let proj = state.projects.find(p => p.name.trim().toLowerCase() === t.projectName.toLowerCase());
+        if (!proj) {
+          const matchedVenue = t.venueName ? state.venues.find(v => v.name.toLowerCase() === t.venueName.toLowerCase()) : null;
+          proj = {
+            id: uid(), name: t.projectName, venueId: matchedVenue ? matchedVenue.id : (state.venues[0] ? state.venues[0].id : null),
+            category: "Other", owner: "", status: "Not Started", stageGate: STAGE_GATES[0], budgetAllocated: 0,
+            startDate: null, targetEndDate: null, actualEndDate: null,
+            licenceRiskFlag: false, gamingFloorDisruption: false, designLed: false,
+          };
+          state.projects.push(proj); createdProjects++;
+        }
+        projectId = proj.id; venueId = proj.venueId;
+      } else if (t.venueName) {
+        const v = state.venues.find(v => v.name.toLowerCase() === t.venueName.toLowerCase());
+        venueId = v ? v.id : null;
+      }
+      state.tasks.push({
+        id: uid(), projectId, venueId, name: t.name, ownerName: t.ownerName, ownerEmail: t.ownerEmail,
+        startDate: t.startDate, dueDate: t.dueDate, status: t.status, priority: t.priority,
+        dependsOnTaskId: null, boardInputRequired: false, notes: t.notes, checklist: [],
+        progressPct: t.status === "Done" ? 100 : 0,
+      });
+      createdTasks++;
+    });
+    save();
+    toast(`Imported ${createdTasks} task(s)` + (createdProjects ? `, created ${createdProjects} project(s)` : "") + (skipped ? ` — skipped ${skipped} row(s) with no task name` : ""));
+    csvImport = null;
+    renderPage();
+  }
+
+  function renderCsvImportCard() {
+    if (!csvImport) {
+      return `
+        <div class="card">
+          <div class="card-head"><h2>${ICON.upload} Import tasks from CSV</h2></div>
+          <div class="card-body pad">
+            <div class="hint" style="margin-bottom:8px">For a colleague's tracker — export it as CSV first (Excel/Sheets: File → Save As / Download → CSV). You'll map its columns to fields and see a preview before anything is saved.</div>
+            <label class="btn" style="cursor:pointer">${ICON.upload} Choose CSV file<input type="file" accept=".csv,text/csv" id="csvFile" style="display:none"></label>
+          </div>
+        </div>
+      `;
+    }
+    const previewRows = csvImport.rows.slice(0, 5);
+    const parsedPreview = previewRows.map(r => buildTaskFromRow(r, csvImport.mapping));
+    const missingProjects = csvImport.mapping.projectName < 0 ? [] : [...new Set(
+      csvImport.rows.map(r => (r[csvImport.mapping.projectName] || "").trim()).filter(Boolean)
+    )].filter(name => !state.projects.some(p => p.name.trim().toLowerCase() === name.toLowerCase()));
+    const unparsedDates = csvImport.mapping.dueDate < 0 ? 0 : csvImport.rows.reduce((n, r) => {
+      const raw = (r[csvImport.mapping.dueDate] || "").trim();
+      return n + (raw && !parseFlexibleDate(raw) ? 1 : 0);
+    }, 0);
+    const nameMapped = csvImport.mapping.name >= 0;
+
+    return `
+      <div class="card">
+        <div class="card-head"><h2>${ICON.upload} Import tasks from CSV</h2><span class="g-count">${escapeHtml(csvImport.fileName)}</span></div>
+        <div class="card-body pad">
+          <div class="hint" style="margin-bottom:10px">Map each column, check the preview, then import. Nothing is saved until you click Import.</div>
+          <div class="csv-map-grid">
+            ${CSV_TASK_FIELDS.map(f => `
+              <div class="field">
+                <label>${escapeHtml(f.label)}${f.required ? " *" : ""}</label>
+                <select data-csv-map="${f.key}">
+                  <option value="-1">— not mapped —</option>
+                  ${csvImport.headers.map((h, i) => `<option value="${i}" ${csvImport.mapping[f.key] === i ? "selected" : ""}>${escapeHtml(h || "(column " + (i + 1) + ")")}</option>`).join("")}
+                </select>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+        <div class="card-body pad" style="border-top:1px solid var(--border)">
+          <div style="font-size:12.5px;font-weight:700;margin-bottom:6px">Preview (first ${previewRows.length} of ${csvImport.rows.length} row${csvImport.rows.length === 1 ? "" : "s"})</div>
+          ${nameMapped ? `<div class="table-wrap"><table class="data-table">
+            <thead><tr><th>Task</th><th>Project</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead>
+            <tbody>${parsedPreview.map(t => `<tr>
+              <td>${escapeHtml(t.name || "—")}</td><td>${escapeHtml(t.projectName || "—")}</td><td>${escapeHtml(t.ownerName || "—")}</td>
+              <td>${t.dueDate ? fmtShort(t.dueDate) : (t._dueDateRaw ? `<span style="color:var(--st-blocked)">unreadable: "${escapeHtml(t._dueDateRaw)}"</span>` : "—")}</td>
+              <td>${logStatusChip(t.status)}${!t._statusMatched && t._statusRaw ? ` <span style="color:var(--ink-muted);font-size:11px">(from "${escapeHtml(t._statusRaw)}")</span>` : ""}</td>
+            </tr>`).join("")}</tbody>
+          </table></div>` : `<div class="banner banner-warn">Map "Task name" to a column before importing — it's the one required field.</div>`}
+          ${missingProjects.length ? `<div class="banner banner-info" style="margin-top:10px">${missingProjects.length} new project${missingProjects.length === 1 ? "" : "s"} will be created: ${missingProjects.map(escapeHtml).join(", ")}</div>` : ""}
+          ${unparsedDates ? `<div class="banner banner-warn" style="margin-top:10px">${unparsedDates} due date${unparsedDates === 1 ? "" : "s"} couldn't be read and will be left blank.</div>` : ""}
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn btn-accent" data-action="commit-csv-import" ${nameMapped ? "" : "disabled"}>${ICON.plus} Import ${csvImport.rows.length} task${csvImport.rows.length === 1 ? "" : "s"}</button>
+            <button class="btn btn-ghost" data-action="cancel-csv-import">Cancel</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   /* ============================== DATA & BACKUP ============================== */
   function renderData() {
     const bytes = new Blob([JSON.stringify(state)]).size;
@@ -1886,6 +2118,7 @@
           <label class="btn" style="cursor:pointer">${ICON.upload} Import backup<input type="file" accept="application/json" id="importFile" style="display:none"></label>
         </div>
       </div>
+      ${renderCsvImportCard()}
       <div class="card">
         <div class="card-head"><h2>Venues</h2></div>
         <div class="table-wrap"><table class="data-table">
@@ -1989,6 +2222,14 @@
     const logCostBtn = root.querySelector('[data-action="log-cost"]'); if (logCostBtn) logCostBtn.addEventListener("click", () => openCostModal());
     const exportBtn = root.querySelector('[data-action="export"]'); if (exportBtn) exportBtn.addEventListener("click", exportBackup);
     const importInput = root.querySelector("#importFile"); if (importInput) importInput.addEventListener("change", () => { if (importInput.files[0]) importBackup(importInput.files[0]); });
+    const csvFileInput = root.querySelector("#csvFile"); if (csvFileInput) csvFileInput.addEventListener("change", () => { if (csvFileInput.files[0]) handleCsvFile(csvFileInput.files[0]); });
+    root.querySelectorAll("[data-csv-map]").forEach(sel => sel.addEventListener("change", () => {
+      if (!csvImport) return;
+      csvImport.mapping[sel.dataset.csvMap] = Number(sel.value);
+      renderPage();
+    }));
+    const commitCsvBtn = root.querySelector('[data-action="commit-csv-import"]'); if (commitCsvBtn) commitCsvBtn.addEventListener("click", commitCsvImport);
+    const cancelCsvBtn = root.querySelector('[data-action="cancel-csv-import"]'); if (cancelCsvBtn) cancelCsvBtn.addEventListener("click", () => { csvImport = null; renderPage(); });
     const resetBtn = root.querySelector('[data-action="reset-all"]'); if (resetBtn) resetBtn.addEventListener("click", () => {
       if (confirm("Erase all projects, tasks and budget data in this browser? This can't be undone unless you have a backup file.")) { state = freshState(); save(); toast("All data erased"); renderPage(); }
     });
