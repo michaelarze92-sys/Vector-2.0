@@ -24,9 +24,16 @@ const addDays = (n) => { const d = new Date(today); d.setDate(d.getDate() + n); 
 
 // "by Friday" = the coming Friday; landing on today means next week's, never today
 const nextFriday = addDays(((5 - today.getDay() + 7) % 7) || 7);
-// "12 August" with no year rolls to next year once this year's has passed
-const aug12 = (() => { const d = new Date(today.getFullYear(), 7, 12);
-  if (d < today) d.setFullYear(d.getFullYear() + 1); return toISO(d); })();
+/* "12 August" with no year stays in THIS year even once it has passed, and only rolls
+   forward when it is more than 60 days back. Most mail this parser sees is a chase about
+   something that has already slipped, so a recently-passed deadline is overdue, not next
+   year's — see resolveBareYear in the template. */
+const bareYear = (month, day) => {
+  const d = new Date(today.getFullYear(), month, day);
+  if ((today - d) / 86400000 > 60) d.setFullYear(d.getFullYear() + 1);
+  return toISO(d);
+};
+const aug12 = bareYear(7, 12);
 
 const EMAIL = [
   'Subject: RE: Chiller 2 tripping on high pressure',
@@ -190,7 +197,7 @@ const EMAIL = [
     (await val('#f-assigned')) === 'Dave Jones', await val('#f-assigned'));
   check('unlabelled copy: site read', (await val('#f-site')) === 'Nottingham', await val('#f-site'));
   check('unlabelled copy: deadline beats the 25/07 timestamp',
-    (await val('#f-target')) === '2026-08-14', await val('#f-target'));
+    (await val('#f-target')) === bareYear(7, 14), `${await val('#f-target')} (expected ${bareYear(7, 14)})`);
   await closeForm();
 
   // (b) bare address on the first line, no display name at all
@@ -224,6 +231,28 @@ const EMAIL = [
     (await val('#f-target')) === aug12, `${await val('#f-target')} (expected ${aug12})`);
   check('From: name still wins when labelled',
     (await val('#f-assigned')) === 'Sarah Patel', await val('#f-assigned'));
+  await closeForm();
+
+  /* (c2) The bare-year rule, pinned in both directions. Getting this wrong is not a
+     cosmetic date bug: rolling a recently-missed deadline forward twelve months takes an
+     overdue statutory action off the chase list for a year. A date far enough back that
+     this year is implausible must still roll, or every stale mail lands as overdue. */
+  const recent = new Date(today); recent.setDate(recent.getDate() - 20);
+  const old = new Date(today); old.setDate(old.getDate() - 200);
+  const monthName = (d) => ['January','February','March','April','May','June','July',
+    'August','September','October','November','December'][d.getMonth()];
+
+  await paste(['From: Dalkia <ops@dalkia.co.uk>', 'Subject: Mayfair sprinkler flow meter',
+    '', `This was due by ${recent.getDate()} ${monthName(recent)} and is still outstanding.`].join('\n'));
+  check('a deadline that slipped recently stays overdue, not next year',
+    (await val('#f-target')) === toISO(recent), `${await val('#f-target')} (expected ${toISO(recent)})`);
+  await closeForm();
+
+  const oldRolled = new Date(old); oldRolled.setFullYear(oldRolled.getFullYear() + 1);
+  await paste(['From: Dalkia <ops@dalkia.co.uk>', 'Subject: Mayfair annual service',
+    '', `Please book this in by ${old.getDate()} ${monthName(old)}.`].join('\n'));
+  check('a bare date far in the past still rolls to next year',
+    (await val('#f-target')) === toISO(oldRolled), `${await val('#f-target')} (expected ${toISO(oldRolled)})`);
   await closeForm();
 
   // (d) a deadline in the subject line must still be found

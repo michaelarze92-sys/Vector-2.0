@@ -1,0 +1,1836 @@
+<title>Metropolitan Estates — Inspections</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="./inspect-manifest.json">
+<meta name="theme-color" content="#123526">
+<style>
+  /* ---------- Design tokens ----------
+     Deliberately identical to estate-pm.html so the three apps read as one family.
+     If you change a token here, change it there too — there is no shared stylesheet
+     (single-file apps, by design), so this is the only thing keeping them in sync. */
+  :root {
+    color-scheme: light;
+    --page: #f2f4ef;
+    --surface: #ffffff;
+    --surface-2: #f7f8f4;
+    --border: rgba(15, 30, 22, 0.11);
+    --border-strong: rgba(15, 30, 22, 0.20);
+    --ink: #10201a;
+    --ink-secondary: #4c5b53;
+    --ink-muted: #7c8a82;
+    --accent: #8a6416;
+    --accent-ink: #ffffff;
+    --accent-soft: #f1e6cf;
+    --accent-soft-ink: #6b4c10;
+    --felt: #123526;
+    --felt-2: #0e2a1e;
+    --felt-ink: #eef2ea;
+    --felt-ink-muted: #a9bdb2;
+    --shadow: 0 1px 2px rgba(16, 32, 26, 0.06), 0 8px 24px -12px rgba(16, 32, 26, 0.18);
+
+    --ok: #0ca30c;
+    --warn: #c9840b;
+    --bad: #d03b3b;
+    --info: #2a78d6;
+    --ok-soft: rgba(12, 163, 12, 0.12);
+    --warn-soft: rgba(201, 132, 11, 0.13);
+    --bad-soft: rgba(208, 59, 59, 0.12);
+    --info-soft: rgba(42, 120, 214, 0.12);
+
+    --radius: 10px;
+    --radius-sm: 6px;
+    /* The topbar is sticky, so anything else that sticks has to clear it or it lands
+       underneath and becomes untappable at the top of the scroll — which is exactly
+       where you are when you open a section. */
+    --topbar-h: 56px;
+    font-size: 15px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0b0f0c; --surface: #13221b; --surface-2: #17281f;
+      --border: rgba(238, 242, 234, 0.10); --border-strong: rgba(238, 242, 234, 0.20);
+      --ink: #f2f1ea; --ink-secondary: #c3cbc4; --ink-muted: #8fa198;
+      --accent: #d9ac59; --accent-ink: #1a1305;
+      --accent-soft: rgba(217, 172, 89, 0.16); --accent-soft-ink: #e8c583;
+      --felt: #0e2119; --felt-2: #12291f; --felt-ink: #eef2ea; --felt-ink-muted: #8fa198;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 28px -12px rgba(0, 0, 0, 0.55);
+      --ok: #3fc23f; --warn: #e0a53a; --bad: #e66767; --info: #3987e5;
+      --ok-soft: rgba(63, 194, 63, 0.16); --warn-soft: rgba(224, 165, 58, 0.16);
+      --bad-soft: rgba(230, 103, 103, 0.16); --info-soft: rgba(57, 135, 229, 0.16);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0b0f0c; --surface: #13221b; --surface-2: #17281f;
+    --border: rgba(238, 242, 234, 0.10); --border-strong: rgba(238, 242, 234, 0.20);
+    --ink: #f2f1ea; --ink-secondary: #c3cbc4; --ink-muted: #8fa198;
+    --accent: #d9ac59; --accent-ink: #1a1305;
+    --accent-soft: rgba(217, 172, 89, 0.16); --accent-soft-ink: #e8c583;
+    --felt: #0e2119; --felt-2: #12291f; --felt-ink: #eef2ea; --felt-ink-muted: #8fa198;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 28px -12px rgba(0, 0, 0, 0.55);
+    --ok: #3fc23f; --warn: #e0a53a; --bad: #e66767; --info: #3987e5;
+    --ok-soft: rgba(63, 194, 63, 0.16); --warn-soft: rgba(224, 165, 58, 0.16);
+    --bad-soft: rgba(230, 103, 103, 0.16); --info-soft: rgba(57, 135, 229, 0.16);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.45; -webkit-text-size-adjust: 100%;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  a { color: var(--accent); }
+
+  /* ---------- Chrome ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 30;
+    background: linear-gradient(180deg, var(--felt), var(--felt-2));
+    color: var(--felt-ink); padding: 10px 14px;
+    padding-top: calc(10px + env(safe-area-inset-top));
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 1px 0 rgba(0,0,0,.25);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: 6px; flex: none;
+    background: linear-gradient(140deg, var(--accent), #c9a24d);
+    display: grid; place-items: center; color: #1a1305; font-weight: 800; font-size: 13px;
+  }
+  .brand-name { font-weight: 650; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand-sub { font-size: 11px; color: var(--felt-ink-muted); }
+  .topbar-spacer { flex: 1; }
+  .icon-btn {
+    background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.14);
+    color: var(--felt-ink); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+    cursor: pointer; font-family: inherit;
+  }
+  .icon-btn:hover { background: rgba(255,255,255,.18); }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 14px 14px 90px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; margin-bottom: 12px;
+  }
+  .eyebrow {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink-muted); font-weight: 650; display: block; margin-bottom: 6px;
+  }
+  .muted { color: var(--ink-muted); font-size: 13px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1; min-width: 0; }
+
+  .btn {
+    font-family: inherit; font-size: 14px; padding: 9px 14px; border-radius: 8px;
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--ink);
+    cursor: pointer; font-weight: 550; min-height: 40px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn-ghost { background: transparent; }
+  .btn-sm { padding: 5px 10px; min-height: 32px; font-size: 13px; }
+  .btn-danger { color: var(--bad); border-color: var(--bad); background: transparent; }
+
+  label.field { display: block; margin-bottom: 10px; }
+  label.field > span { display: block; font-size: 12px; color: var(--ink-secondary); margin-bottom: 4px; font-weight: 550; }
+  input[type=text], input[type=date], input[type=number], select, textarea {
+    width: 100%; font-family: inherit; font-size: 15px; padding: 9px 10px;
+    border: 1px solid var(--border-strong); border-radius: 8px;
+    background: var(--surface); color: var(--ink); min-height: 42px;
+  }
+  textarea { min-height: 68px; resize: vertical; }
+  input[type=file] { display: none; }
+
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 650; letter-spacing: .02em;
+  }
+  .pill-ok { background: var(--ok-soft); color: var(--ok); }
+  .pill-warn { background: var(--warn-soft); color: var(--warn); }
+  .pill-bad { background: var(--bad-soft); color: var(--bad); }
+  .pill-info { background: var(--info-soft); color: var(--info); }
+  .pill-muted { background: var(--surface-2); color: var(--ink-muted); }
+
+  /* ---------- Inspection list ---------- */
+  .insp-row {
+    display: flex; gap: 12px; align-items: center; padding: 11px 0;
+    border-bottom: 1px solid var(--border); cursor: pointer;
+  }
+  .insp-row:last-child { border-bottom: 0; }
+  .insp-title { font-weight: 600; }
+
+  /* ---------- Runner ---------- */
+  .progress-bar {
+    position: sticky; top: calc(var(--topbar-h) + env(safe-area-inset-top));
+    z-index: 20; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; margin-bottom: 12px; box-shadow: var(--shadow);
+  }
+  .meter { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 7px; }
+  .meter > i { display: block; height: 100%; background: var(--accent); }
+
+  details.section {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 10px; overflow: hidden;
+  }
+  details.section > summary {
+    padding: 12px 14px; cursor: pointer; font-weight: 600; list-style: none;
+    display: flex; align-items: center; gap: 10px;
+  }
+  details.section > summary::-webkit-details-marker { display: none; }
+  details.section > summary::after { content: "▸"; color: var(--ink-muted); margin-left: auto; }
+  details.section[open] > summary::after { content: "▾"; }
+  details.section > summary:hover { background: var(--surface-2); }
+  .section-body { padding: 0 14px 12px; }
+
+  .item { padding: 12px 0; border-top: 1px solid var(--border); }
+  .item-text { font-weight: 550; margin-bottom: 2px; }
+  .item-guide { font-size: 12px; color: var(--ink-muted); margin-bottom: 8px; }
+
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .seg > button {
+    font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    padding: 8px 12px; min-height: 40px; min-width: 44px;
+    border: 1px solid var(--border-strong); border-radius: 8px;
+    background: var(--surface-2); color: var(--ink-secondary);
+  }
+  .seg > button[aria-pressed="true"] { border-color: transparent; color: #fff; }
+  .seg > button[aria-pressed="true"][data-tone="ok"]   { background: var(--ok); }
+  .seg > button[aria-pressed="true"][data-tone="warn"] { background: var(--warn); }
+  .seg > button[aria-pressed="true"][data-tone="bad"]  { background: var(--bad); }
+  .seg > button[aria-pressed="true"][data-tone="mute"] { background: var(--ink-muted); }
+
+  .answer-extra { margin-top: 10px; padding-left: 10px; border-left: 3px solid var(--border-strong); }
+  .answer-extra.adverse { border-left-color: var(--bad); }
+
+  .finding-card {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 12px; margin-top: 8px;
+    border-left: 3px solid var(--bad);
+  }
+  .finding-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .finding-head span { font-size: 12px; font-weight: 650; color: var(--ink-secondary); }
+  .finding-head button { margin-left: auto; }
+
+  .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .thumb { position: relative; width: 68px; height: 68px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb button {
+    position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; line-height: 1;
+    border-radius: 999px; border: 0; background: rgba(0,0,0,.62); color: #fff; cursor: pointer; font-size: 12px;
+  }
+
+  /* ---------- Report ---------- */
+  .score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  .score-tile { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+  .score-tile b { display: block; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+  table.rep { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.rep th, table.rep td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.rep th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-muted); }
+  .table-scroll { overflow-x: auto; }
+
+  /* ---------- Toast / dialogs ---------- */
+  #toast {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 22px; z-index: 60;
+    background: var(--felt); color: var(--felt-ink); padding: 10px 16px; border-radius: 999px;
+    font-size: 14px; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .18s;
+    max-width: 90vw; text-align: center;
+  }
+  #toast.show { opacity: 1; }
+  dialog {
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 0;
+    background: var(--surface); color: var(--ink); max-width: 520px; width: calc(100vw - 28px);
+    box-shadow: var(--shadow);
+  }
+  dialog::backdrop { background: rgba(6, 14, 10, .55); }
+  .dlg-body { padding: 16px; }
+  .dlg-foot { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
+
+  .menu-sheet { position: fixed; inset: 0; z-index: 50; display: none; }
+  .menu-sheet.open { display: block; }
+  .menu-sheet .scrim { position: absolute; inset: 0; background: rgba(6,14,10,.45); }
+  .menu-sheet .panel {
+    position: absolute; right: 12px; top: calc(var(--topbar-h) + env(safe-area-inset-top));
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); min-width: 240px; overflow: hidden;
+  }
+  .menu-sheet .panel button {
+    display: block; width: 100%; text-align: left; padding: 11px 14px; font-size: 14px;
+    background: none; border: 0; border-bottom: 1px solid var(--border); color: var(--ink);
+    cursor: pointer; font-family: inherit;
+  }
+  .menu-sheet .panel button:last-child { border-bottom: 0; }
+  .menu-sheet .panel button:hover { background: var(--surface-2); }
+
+  .empty { text-align: center; padding: 26px 14px; color: var(--ink-muted); }
+
+  @media print {
+    .topbar, .menu-sheet, #toast, .no-print { display: none !important; }
+    body { background: #fff; }
+    .wrap { max-width: none; padding: 0; }
+    .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
+    details.section { break-inside: avoid; }
+  }
+</style>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-mark">MG</div>
+    <div>
+      <div class="brand-name">Inspections</div>
+      <div class="brand-sub">Metropolitan Estates</div>
+    </div>
+  </div>
+  <div class="topbar-spacer"></div>
+  <button class="icon-btn" id="homeBtn" title="All inspections">☰ List</button>
+  <button class="icon-btn" id="menuBtn" title="Menu">⋮</button>
+</div>
+
+<div class="wrap" id="content"></div>
+
+<div class="menu-sheet" id="menuSheet">
+  <div class="scrim" data-close-menu></div>
+  <div class="panel">
+    <button id="mNew">New inspection</button>
+    <button id="mTheme">Switch light / dark</button>
+    <button id="mBackup">Download backup (.json)</button>
+    <button id="mRestore">Restore backup (.json) — REPLACES</button>
+    <button id="mAbout">About &amp; storage</button>
+  </div>
+</div>
+
+<input type="file" id="restoreFile" accept=".json,application/json">
+<input type="file" id="photoFile" accept="image/*" capture="environment">
+
+<dialog id="confirmDlg">
+  <div class="dlg-body"><div id="confirmText"></div></div>
+  <div class="dlg-foot">
+    <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+    <button class="btn btn-primary" id="confirmOk">Confirm</button>
+  </div>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ======================================================================
+     ORIENTATION
+
+     Third app in the Metropolitan Estates set, and the same shape as the
+     other two on purpose: one self-contained HTML file, no framework, no
+     build step, no external requests, everything in localStorage plus
+     IndexedDB for photos. It works on a phone in a basement plant room
+     with no signal, which is the only environment that actually matters
+     for an inspection tool.
+
+     It is deliberately SEPARATE from the Estates Ledger:
+       - own storage namespace (STORE_KEY / PHOTO_DB below), so it cannot
+         corrupt ledger data no matter what goes wrong in here;
+       - own service worker scoped to /standalone/, which the Ledger's
+         worker explicitly refuses to touch.
+
+     The one thing that ties them together is the export: adverse findings
+     come out as an ISSUES block CSV in exactly the format the Ledger's
+     "Merge in data" command reads, so a site visit turns into register
+     entries without retyping and without duplicating what is already
+     logged. Column names below MUST stay in step with MERGE_BLOCKS in
+     src/ledger/estates-ledger.template.html.
+     ====================================================================== */
+
+  var STORE_KEY = "metroInspect.v1";
+  var THEME_KEY = "metroInspect.theme.v1";
+  var PHOTO_DB = "metroInspectPhotos";
+  var PHOTO_DB_VERSION = 1;
+
+  /* Venue names are the LEDGER's short names, not the Project Board's v1-v7 ids.
+     The export writes straight into the Ledger's Site column, so matching its
+     spelling exactly is what makes duplicate detection work over there. The
+     long name is display only. */
+  var VENUES = [
+    { name: "Mayfair",          full: "Metropolitan Mayfair" },
+    { name: "Park Lane",        full: "Park Lane Club" },
+    { name: "Leicester Square", full: "The Empire, Leicester Square" },
+    { name: "Marble Arch",      full: "The Sportsman, Marble Arch" },
+    { name: "Manchester",       full: "Manchester 235" },
+    { name: "Glasgow",          full: "Alea Glasgow" },
+    { name: "Nottingham",       full: "Alea Nottingham" }
+  ];
+
+  /* ======================================================================
+     UTILITIES
+     ====================================================================== */
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function todayISO() {
+    var d = new Date(), p = function (n) { return ("0" + n).slice(-2); };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  function escapeHtml(s) {
+    return String(s === undefined || s === null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function fmtDate(iso) {
+    if (!iso) return "";
+    var p = String(iso).split("-");
+    if (p.length !== 3) return iso;
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return Number(p[2]) + " " + months[Number(p[1]) - 1] + " " + p[0];
+  }
+  function addDaysISO(iso, days) {
+    var p = String(iso).split("-");
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    d.setDate(d.getDate() + days);
+    var q = function (n) { return ("0" + n).slice(-2); };
+    return d.getFullYear() + "-" + q(d.getMonth() + 1) + "-" + q(d.getDate());
+  }
+
+  var toastTimer = null;
+  function showToast(msg) {
+    var el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove("show"); }, 3200);
+  }
+
+  function confirmAction(text, onOk) {
+    var dlg = document.getElementById("confirmDlg");
+    document.getElementById("confirmText").textContent = text;
+    var ok = document.getElementById("confirmOk");
+    var fresh = ok.cloneNode(true);          // drop any handler from a previous call
+    ok.parentNode.replaceChild(fresh, ok);
+    fresh.addEventListener("click", function () { dlg.close(); onOk(); });
+    dlg.showModal();
+  }
+  document.getElementById("confirmCancel").addEventListener("click", function () {
+    document.getElementById("confirmDlg").close();
+  });
+
+  /* ======================================================================
+     TEMPLATES
+
+     Three kinds, and the `kind` drives the whole UI and the scoring:
+       condition — 1-5 grade per element (RICS-flavoured, see GRADES)
+       audit     — Pass / Fail / N/A against a standard
+       ppm       — Verified / Rejected / Not sampled against a contractor claim
+
+     `cat` on a section is the Ledger category an adverse finding is filed
+     under, so exported issues land in the right bucket rather than all in
+     "Other". Guidance strings name the framework where one applies — this
+     is groundwork, not a substitute for formal H&S advice on interpretation.
+     ====================================================================== */
+
+  var GRADES = [
+    { v: 1, label: "1", tone: "ok",   name: "Good",         hint: "As new or well maintained. No action." },
+    { v: 2, label: "2", tone: "ok",   name: "Satisfactory", hint: "Routine maintenance only." },
+    { v: 3, label: "3", tone: "warn", name: "Fair",         hint: "Planned work within 24 months." },
+    { v: 4, label: "4", tone: "bad",  name: "Poor",         hint: "Work required within 12 months." },
+    { v: 5, label: "5", tone: "bad",  name: "Failed",       hint: "End of life or immediate action." }
+  ];
+  var AUDIT_OPTS = [
+    { v: "pass", label: "Pass", tone: "ok" },
+    { v: "fail", label: "Fail", tone: "bad" },
+    { v: "na",   label: "N/A",  tone: "mute" }
+  ];
+  var PPM_OPTS = [
+    { v: "verified", label: "Verified",    tone: "ok" },
+    { v: "rejected", label: "Rejected",    tone: "bad" },
+    { v: "nosample", label: "Not sampled", tone: "mute" }
+  ];
+
+  function optsFor(kind) {
+    if (kind === "condition") {
+      return GRADES.map(function (g) { return { v: String(g.v), label: g.label, tone: g.tone }; });
+    }
+    return kind === "audit" ? AUDIT_OPTS : PPM_OPTS;
+  }
+
+  /* An answer is "adverse" when it should become a Ledger issue. */
+  function isAdverse(kind, value) {
+    if (value === undefined || value === null || value === "") return false;
+    if (kind === "condition") return Number(value) >= 4;
+    if (kind === "audit") return value === "fail";
+    return value === "rejected";
+  }
+  function isAnswered(value) { return value !== undefined && value !== null && value !== ""; }
+  /* N/A and Not sampled are answered but carry no score — excluded from the denominator. */
+  function countsToScore(kind, value) {
+    if (!isAnswered(value)) return false;
+    if (kind === "audit") return value !== "na";
+    if (kind === "ppm") return value !== "nosample";
+    return true;
+  }
+
+  function it(id, text, guide) { return { id: id, text: text, guide: guide || "" }; }
+
+  var TEMPLATES = [
+    /* ---------------- 1. Venue condition survey ---------------- */
+    {
+      id: "condition",
+      kind: "condition",
+      name: "Venue condition survey",
+      blurb: "Element-by-element condition grading. Feeds dilapidations exposure, lifecycle planning and capital bids.",
+      sections: [
+        { id: "ext", title: "External & roof", cat: "Fabric & Building", items: [
+          it("ext1", "Roof covering, flashings and upstands", "Ponding, blistering, lifted flashings. Photograph anything you cannot safely reach."),
+          it("ext2", "Rainwater goods — gutters, hoppers, downpipes", "Blockage and overflow staining are the early signs of the ingress claims that end up disputed."),
+          it("ext3", "External walls, render and pointing", ""),
+          it("ext4", "Windows, external doors and shopfront", ""),
+          it("ext5", "Signage, canopy and external lighting", "Includes fixing condition — a loose fascia over a public pavement is a different conversation."),
+          it("ext6", "Roof plant enclosures, access and guarding", "Edge protection, fixed ladders, mansafe eyes and their last inspection date."),
+          it("ext7", "Terraces, balconies and waterproofing", "")
+        ]},
+        { id: "foh", title: "Entrance & front of house", cat: "Fabric & Building", items: [
+          it("foh1", "Entrance doors, automatics and access control", ""),
+          it("foh2", "Reception desk, joinery and finishes", ""),
+          it("foh3", "Floor finishes — carpet, stone, matting", "Matting wells and transitions are the recurring slip source at the threshold."),
+          it("foh4", "Wall finishes, decoration and mirrors", ""),
+          it("foh5", "Lighting and ceiling condition", ""),
+          it("foh6", "Cloakroom and lobby fittings", "")
+        ]},
+        { id: "gam", title: "Gaming floor", cat: "Fabric & Building", items: [
+          it("gam1", "Carpet and floor finishes", "Note wear pattern against the last replacement date — this is usually the largest single lifecycle line."),
+          it("gam2", "Gaming furniture and table condition", ""),
+          it("gam3", "Slots bases, plinths and cable management", ""),
+          it("gam4", "Decoration, wall finishes and feature joinery", ""),
+          it("gam5", "Lighting, dimming and feature lighting", ""),
+          it("gam6", "Ceiling, bulkheads and acoustic treatment", ""),
+          it("gam7", "Comfort — temperature, draughts, air movement", "Persistent complaints here usually resolve to an AHU or BMS fault, not a fabric one.")
+        ]},
+        { id: "bar", title: "Bars & restaurant", cat: "Fabric & Building", items: [
+          it("bar1", "Bar fronts, counters and back-fittings", ""),
+          it("bar2", "Cellar condition, cooling and line runs", ""),
+          it("bar3", "Restaurant furniture and soft seating", ""),
+          it("bar4", "Servery and pass condition", ""),
+          it("bar5", "Floor finishes behind bar — slip resistance and drainage", "")
+        ]},
+        { id: "kit", title: "Kitchen", cat: "M&E / Plant", items: [
+          it("kit1", "Catering equipment condition and age", "Note anything past its economic life — it is a capital bid, not a reactive spend."),
+          it("kit2", "Extraction canopy, ductwork and fans", "Grease build-up, last clean certificate, TR19 compliance."),
+          it("kit3", "Suppression system condition and service status", "Ansul or equivalent — nozzle condition, service label date, any equipment moved under the canopy."),
+          it("kit4", "Wall, floor and ceiling finishes — cleanability", ""),
+          it("kit5", "Drainage, gullies and grease trap", "A grease trap that is missing, undersized or not connected is a repeat pump failure waiting to happen."),
+          it("kit6", "Cold rooms, walk-ins and refrigeration", "")
+        ]},
+        { id: "boh", title: "Back of house & staff areas", cat: "Fabric & Building", items: [
+          it("boh1", "Staff canteen and rest areas", ""),
+          it("boh2", "Changing rooms and lockers", ""),
+          it("boh3", "Corridors, doors and protection", ""),
+          it("boh4", "Offices and count room", "Count room is a cash-handling area — include door, frame and fixing condition."),
+          it("boh5", "Storage areas and racking", "")
+        ]},
+        { id: "wc", title: "Toilets & washrooms", cat: "Fabric & Building", items: [
+          it("wc1", "Sanitaryware and cubicles", ""),
+          it("wc2", "Wall and floor finishes", ""),
+          it("wc3", "Ventilation and odour control", ""),
+          it("wc4", "Accessible WC — fittings, alarm and clear space", "Alarm pull cord to floor level and a documented response procedure.")
+        ]},
+        { id: "plant", title: "Plant rooms & M&E", cat: "M&E / Plant", items: [
+          it("pl1", "Chillers and external condensers", "Age, refrigerant type, and whether an F-Gas phase-down applies to it."),
+          it("pl2", "Boilers, calorifiers and pressurisation", "A system being manually topped up is a symptom — record it here even if it 'works'."),
+          it("pl3", "AHUs, filters and belts", ""),
+          it("pl4", "Pumps, valves and pipework insulation", ""),
+          it("pl5", "Electrical intake, distribution and panels", "Panel condition, labelling, IP rating and whether anything is stored against it."),
+          it("pl6", "Generator / UPS where fitted", ""),
+          it("pl7", "BMS — condition, support status and head-end", "Unsupported software is a capital item, not a fault. Record the version."),
+          it("pl8", "Plant room housekeeping and access", "Combustible storage in a plant room is both a fire finding and a condition finding.")
+        ]},
+        { id: "vt", title: "Vertical transport", cat: "M&E / Plant", items: [
+          it("vt1", "Passenger lifts — ride quality, doors, car condition", ""),
+          it("vt2", "Goods lift condition", ""),
+          it("vt3", "Escalators — steps, handrails, combs, balustrade", "Handrail speed and step gaps are the injury-generating defects."),
+          it("vt4", "Lift machine rooms and pits", "Water in a pit is both a lift and a drainage finding."),
+          it("vt5", "Platform / accessibility lifts", "")
+        ]},
+        { id: "bas", title: "Basement & car park", cat: "Fabric & Building", items: [
+          it("bas1", "Structure, tanking and evidence of ingress", ""),
+          it("bas2", "Car park deck, lining and barriers", ""),
+          it("bas3", "Smoke extract and ventilation plant", "Where responsibility sits with the landlord, say so in the note — that dispute belongs on the register."),
+          it("bas4", "Sumps, pumps and drainage", ""),
+          it("bas5", "Lighting levels and emergency lighting", "")
+        ]}
+      ]
+    },
+
+    /* ---------------- 2. H&S / statutory audit ---------------- */
+    {
+      id: "hsaudit",
+      kind: "audit",
+      name: "H&S / statutory audit",
+      blurb: "Pass / fail against the standard. Every fail becomes an action on the register.",
+      sections: [
+        { id: "fire", title: "Fire safety & means of escape", cat: "Health & Safety", items: [
+          it("f1", "Current fire risk assessment on site and its actions tracked", "RRO 2005 art.9. A completed FRA with an untracked action list is the classic audit finding."),
+          it("f2", "Escape routes clear, unobstructed and unlocked in the direction of travel", ""),
+          it("f3", "Final exit doors open freely without a key", ""),
+          it("f4", "Fire doors close fully onto the latch; intumescent and smoke seals intact", "Check the threshold strip and the gap — 3mm nominal around the leaf."),
+          it("f5", "Hold-open devices release on alarm", ""),
+          it("f6", "Fire alarm panel healthy; weekly test recorded", "Rotate the call point tested; record device and time."),
+          it("f7", "Detection coverage appropriate to current room use", "Rooms change use faster than detection gets moved."),
+          it("f8", "Extinguishers in place, in date, unobstructed and correctly signed", ""),
+          it("f9", "Sprinkler / suppression in service; any isolation logged and time-limited", "An isolation with no reinstatement time recorded is the finding."),
+          it("f10", "Fire compartmentation documented and breaches recorded", "Missing compartmentation drawings are themselves a finding — record it."),
+          it("f11", "Evacuation plan current, including PEEPs for disabled occupants", ""),
+          it("f12", "Fire drills carried out and recorded within the last 6 months", ""),
+          it("f13", "Refuge points, communication and evacuation chair provision", "")
+        ]},
+        { id: "el", title: "Emergency lighting & signage", cat: "Health & Safety", items: [
+          it("e1", "Monthly function test recorded", "BS 5266."),
+          it("e2", "Annual 3-hour duration test recorded and passed", ""),
+          it("e3", "Coverage adequate on all escape routes and to final exits", ""),
+          it("e4", "Escape signage present, correct direction and illuminated where required", ""),
+          it("e5", "Central battery / inverter condition and support status", "Batteries at manufacturer end of life are a planned replacement, not a fault.")
+        ]},
+        { id: "elec", title: "Electrical & gas", cat: "Health & Safety", items: [
+          it("x1", "Fixed wire test (EICR) in date; C1/C2 remedials closed out", "EAWR 1989 / BS 7671. Record the actual expiry, not the last test date."),
+          it("x2", "PAT / in-service inspection in date and proportionate to risk", ""),
+          it("x3", "Distribution boards labelled, secured and free of stored material", ""),
+          it("x4", "No visible damaged accessories, trailing leads or daisy-chained extensions", ""),
+          it("x5", "Gas safety certificate in date for all commercial appliances", "Gas Safety (Installation and Use) Regulations 1998."),
+          it("x6", "Gas interlock with kitchen extraction proven", ""),
+          it("x7", "Emergency shut-off locations known, accessible and labelled", "")
+        ]},
+        { id: "water", title: "Water hygiene", cat: "Health & Safety", items: [
+          it("w1", "Legionella risk assessment current and reviewed", "ACOP L8 / HSG274."),
+          it("w2", "Named responsible person and deputy in place", ""),
+          it("w3", "Monthly temperature monitoring recorded and in range", "Hot ≥50°C at outlet within 1 min, cold ≤20°C within 2 min."),
+          it("w4", "Little-used outlets flushed and recorded", "The post-refurb and low-occupancy rooms are where this fails."),
+          it("w5", "Tanks, calorifiers and TMVs inspected and serviced", ""),
+          it("w6", "Showers descaled and disinfected on schedule", "")
+        ]},
+        { id: "coshh", title: "COSHH & chemical storage", cat: "Health & Safety", items: [
+          it("c1", "COSHH assessments in place for products actually in use", "COSHH 2002. Check the cupboard against the file, not the file against itself."),
+          it("c2", "Safety data sheets accessible to staff", ""),
+          it("c3", "Chemicals stored securely, segregated and correctly labelled", ""),
+          it("c4", "Decanted products labelled", ""),
+          it("c5", "PPE provided, appropriate and in usable condition", ""),
+          it("c6", "Spill provision and eyewash where required", "")
+        ]},
+        { id: "loler", title: "Work equipment, LOLER & lifts", cat: "Health & Safety", items: [
+          it("l1", "Lift LOLER thorough examination in date (6 monthly, passenger)", "LOLER 1998 reg.9."),
+          it("l2", "Any LOLER defect reports closed out and evidenced", ""),
+          it("l3", "Lift emergency alarm and autodial tested and answered", "Test it. An unanswered alarm during an entrapment is the finding that matters."),
+          it("l4", "Entrapment release procedure documented; trained releasers on shift", ""),
+          it("l5", "Escalator emergency stops accessible and tested", ""),
+          it("l6", "Other lifting equipment — hoists, tail lifts — in date", ""),
+          it("l7", "Ladders and access equipment inspected and fit for use", "")
+        ]},
+        { id: "food", title: "Kitchen & food safety", cat: "Health & Safety", items: [
+          it("k1", "Food hygiene rating displayed and current", ""),
+          it("k2", "HACCP documentation current and being completed daily", "Gaps in the record are what an EHO opens with."),
+          it("k3", "Temperature records — fridges, freezers, cooking, hot holding", ""),
+          it("k4", "Extraction cleaned to schedule with certificate", "TR19 Grease."),
+          it("k5", "Suppression system serviced and in date", ""),
+          it("k6", "Pest control contract active; recent reports actioned", ""),
+          it("k7", "Allergen information accurate and accessible", "Natasha's Law for PPDS items."),
+          it("k8", "Cleaning schedules in place and signed off", "")
+        ]},
+        { id: "house", title: "Housekeeping, access & slips", cat: "Health & Safety", items: [
+          it("h1", "Floors free of trip hazards, damaged coverings and trailing cables", ""),
+          it("h2", "Wet floor procedure and signage in use", ""),
+          it("h3", "Stairs — nosings, handrails, lighting, no storage", "Any condemned or closed-off staircase must be secured at every level, not just the bottom."),
+          it("h4", "Storage areas tidy; nothing stored against plant or in risers", ""),
+          it("h5", "Waste and recycling managed; bin store secure", ""),
+          it("h6", "Manual handling aids available and used", ""),
+          it("h7", "Roof and height access controlled and permitted", "")
+        ]},
+        { id: "contr", title: "Contractor control & permits", cat: "Health & Safety", items: [
+          it("p1", "Contractors signed in, inducted and supervised", ""),
+          it("p2", "RAMS received, reviewed and site-specific before work started", "A generic RAMS with another venue's name on it is a fail."),
+          it("p3", "Permits to work in use — hot works, confined space, isolation, roof", ""),
+          it("p4", "Hot works permit includes a post-work fire watch period", ""),
+          it("p5", "Asbestos register consulted and signed before intrusive work", "CAR 2012. Where a register exists, consulting it is not optional."),
+          it("p6", "Works areas segregated from public and staff", ""),
+          it("p7", "CDM duties considered where the work is notifiable or multi-contractor", "CDM 2015 — flag to a competent adviser rather than deciding on site.")
+        ]},
+        { id: "docs", title: "Documentation & records", cat: "Health & Safety", items: [
+          it("d1", "Statutory compliance register current and matches reality on site", ""),
+          it("d2", "Accident and near-miss book in use; RIDDOR reportables identified", "RIDDOR 2013 — 10 days for most, 15 for over-7-day incapacitation."),
+          it("d3", "Mandatory SHE training completion evidenced for site staff", ""),
+          it("d4", "Risk assessments reviewed within the last 12 months or on change", ""),
+          it("d5", "Asbestos register present, current and communicated", ""),
+          it("d6", "Insurance inspection reports (plant, pressure systems) in date", "PSSR 2000 written scheme of examination."),
+          it("d7", "Previous audit actions closed out and evidenced", "The single most predictive item on this list.")
+        ]}
+      ]
+    },
+
+    /* ---------------- 3. Contractor / PPM quality check ---------------- */
+    {
+      id: "ppmqc",
+      kind: "ppm",
+      name: "Contractor / PPM quality check",
+      blurb: "Verify what the FM provider has signed off as complete. A rejection becomes an SLA issue on the register.",
+      sections: [
+        { id: "ev", title: "Evidence & paperwork", cat: "FM / Dalkia SLA", items: [
+          it("v1", "Job sheet exists for the task claimed complete", "Sample from the CAFM completion list before you walk, not after."),
+          it("v2", "Engineer's notes describe what was actually done", "\"Attended, no fault found\" against a live fault is a rejection."),
+          it("v3", "Certificate or test result attached where the task requires one", ""),
+          it("v4", "Asset reference on the sheet matches the asset on site", ""),
+          it("v5", "Completion date plausible against site access records", ""),
+          it("v6", "Temporary fix not recorded as a permanent completion", "Sensor tape, jubilee clips and bypasses closed as 'complete' is the recurring one.")
+        ]},
+        { id: "work", title: "Workmanship", cat: "FM / Dalkia SLA", items: [
+          it("m1", "Work physically present and functioning on inspection", ""),
+          it("m2", "Standard of finish acceptable", ""),
+          it("m3", "Correct parts used; non-OEM substitutions declared and agreed", ""),
+          it("m4", "No collateral damage left behind", ""),
+          it("m5", "Insulation, labelling and guarding reinstated", ""),
+          it("m6", "Isolations removed and systems returned to service", "Cross-check against the isolation log.")
+        ]},
+        { id: "stat", title: "Statutory task verification", cat: "FM / Dalkia SLA", items: [
+          it("s1", "Statutory PPM carried out by a demonstrably competent person", "Self-delivery of legionella or emergency lighting testing by untrained site staff is a hard fail."),
+          it("s2", "Certification issued, correct and filed", ""),
+          it("s3", "Remedial actions raised from the task and quoted", ""),
+          it("s4", "Frequency matches the written scheme / statutory interval", ""),
+          it("s5", "Anomalies escalated rather than closed silently", "")
+        ]},
+        { id: "cond", title: "Site conduct & RAMS", cat: "FM / Dalkia SLA", items: [
+          it("r1", "Signed in and inducted", ""),
+          it("r2", "Site-specific RAMS submitted and followed", ""),
+          it("r3", "Permits raised where required", ""),
+          it("r4", "PPE worn correctly", ""),
+          it("r5", "Work area left safe, clean and segregated during works", ""),
+          it("r6", "Public and staff protected during the work", "")
+        ]},
+        { id: "asset", title: "Asset & housekeeping", cat: "FM / Dalkia SLA", items: [
+          it("a1", "Asset register entry accurate — location, make, model, serial", ""),
+          it("a2", "Asset labelled and identifiable on site", ""),
+          it("a3", "Plant room left tidy and secure", ""),
+          it("a4", "Spares and consumables stock adequate", ""),
+          it("a5", "Defects found during PPM raised as reactive jobs", "")
+        ]}
+      ]
+    }
+  ];
+
+  function templateById(id) {
+    return TEMPLATES.filter(function (t) { return t.id === id; })[0] || null;
+  }
+  function itemIndex(tpl) {
+    var idx = {};
+    tpl.sections.forEach(function (sec) {
+      sec.items.forEach(function (item) { idx[item.id] = { section: sec, item: item }; });
+    });
+    return idx;
+  }
+
+  /* ======================================================================
+     STATE
+
+     One object in localStorage. Answers live in `responses` keyed by item
+     id; findings are DERIVED from them rather than stored separately, so
+     there is no second copy to drift out of sync when an answer changes.
+     ====================================================================== */
+
+  function freshState() {
+    return { inspections: [], ui: { openId: null, page: "home" } };
+  }
+
+  var state = loadState();
+  var storageHalted = false;
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return freshState();
+      var parsed = JSON.parse(raw);
+      var fresh = freshState();
+      if (!parsed || !Array.isArray(parsed.inspections)) throw new Error("unrecognised shape");
+      return { inspections: parsed.inspections, ui: Object.assign(fresh.ui, parsed.ui || {}) };
+    } catch (e) {
+      /* Same rule as the Ledger: never silently start fresh over data we failed to
+         parse, because the next save would overwrite the only copy. Stop writing and
+         say so instead. */
+      storageHalted = true;
+      console.error("Could not read saved inspections.", e);
+      setTimeout(function () {
+        showToast("Saved data could not be read. Saving is paused so nothing is overwritten — take a backup of this browser before continuing.");
+      }, 400);
+      return freshState();
+    }
+  }
+
+  function save() {
+    if (storageHalted) return;
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    } catch (e) {
+      storageHalted = true;
+      showToast("Storage is full — saving has stopped. Download a backup now, then remove old inspections.");
+    }
+  }
+
+  function inspectionById(id) {
+    return state.inspections.filter(function (i) { return i.id === id; })[0] || null;
+  }
+
+  /* ======================================================================
+     PHOTOS — IndexedDB
+
+     Photos never go in localStorage: a handful of phone snaps would blow the
+     ~5MB quota and take every inspection with it. They are downscaled on
+     capture because a modern phone JPEG is 4-8MB and nothing here needs more
+     than enough pixels to evidence a defect.
+     ====================================================================== */
+
+  var MAX_PHOTO_DIM = 1400;
+  var PHOTO_QUALITY = 0.72;
+
+  function openPhotoDb() {
+    return new Promise(function (resolve, reject) {
+      var req;
+      try { req = indexedDB.open(PHOTO_DB, PHOTO_DB_VERSION); }
+      catch (e) { return reject(e); }
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains("photos")) db.createObjectStore("photos");
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function putPhoto(id, dataUrl) {
+    return openPhotoDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction("photos", "readwrite");
+        tx.objectStore("photos").put(dataUrl, id);
+        tx.oncomplete = function () { resolve(id); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+  function getPhoto(id) {
+    return openPhotoDb().then(function (db) {
+      return new Promise(function (resolve) {
+        var get = db.transaction("photos").objectStore("photos").get(id);
+        get.onsuccess = function () { resolve(get.result || null); };
+        get.onerror = function () { resolve(null); };
+      });
+    }).catch(function () { return null; });
+  }
+  function deletePhoto(id) {
+    return openPhotoDb().then(function (db) {
+      return new Promise(function (resolve) {
+        var tx = db.transaction("photos", "readwrite");
+        tx.objectStore("photos").delete(id);
+        tx.oncomplete = resolve; tx.onerror = resolve;
+      });
+    }).catch(function () {});
+  }
+  function allPhotos() {
+    return openPhotoDb().then(function (db) {
+      return new Promise(function (resolve) {
+        var out = {};
+        var store = db.transaction("photos").objectStore("photos");
+        var cur = store.openCursor();
+        cur.onsuccess = function () {
+          var c = cur.result;
+          if (!c) return resolve(out);
+          out[c.key] = c.value;
+          c.continue();
+        };
+        cur.onerror = function () { resolve(out); };
+      });
+    }).catch(function () { return {}; });
+  }
+
+  function downscale(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error("read failed")); };
+      reader.onload = function () {
+        var img = new Image();
+        img.onerror = function () { reject(new Error("decode failed")); };
+        img.onload = function () {
+          var w = img.naturalWidth, h = img.naturalHeight;
+          var scale = Math.min(1, MAX_PHOTO_DIM / Math.max(w, h));
+          var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+          var canvas = document.createElement("canvas");
+          canvas.width = cw; canvas.height = ch;
+          canvas.getContext("2d").drawImage(img, 0, 0, cw, ch);
+          try { resolve(canvas.toDataURL("image/jpeg", PHOTO_QUALITY)); }
+          catch (e) { reject(e); }
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /* ======================================================================
+     SCORING
+     ====================================================================== */
+
+  function responsesOf(insp) { return insp.responses || (insp.responses = {}); }
+
+  /* Migrate old single-note/photos-per-item responses to the findings-array format.
+     Runs once on load; the migration is idempotent. */
+  function migrateResponses(insp) {
+    var tpl = templateById(insp.templateId);
+    if (!tpl) return;
+    var res = responsesOf(insp);
+    Object.keys(res).forEach(function (k) {
+      var r = res[k];
+      if (r.findings) return;
+      if (!isAdverse(tpl.kind, r.value)) return;
+      r.findings = [];
+      if (r.note || (r.photos && r.photos.length) || r.target || r.owner) {
+        r.findings.push({
+          id: uid(), label: "", note: r.note || "",
+          photos: r.photos || [], target: r.target || "", owner: r.owner || ""
+        });
+        delete r.note; delete r.photos; delete r.target; delete r.owner;
+      }
+    });
+  }
+  state.inspections.forEach(migrateResponses);
+
+  function stats(insp) {
+    var tpl = templateById(insp.templateId);
+    var res = responsesOf(insp);
+    var total = 0, answered = 0, scored = 0, adverse = 0, gradeSum = 0, findingsCount = 0;
+    if (!tpl) return { total: 0, answered: 0, adverse: 0, findingsCount: 0, pct: 0, score: null, scoreLabel: "" };
+    tpl.sections.forEach(function (sec) {
+      sec.items.forEach(function (item) {
+        total++;
+        var r = res[item.id] || {};
+        var v = r.value;
+        if (isAnswered(v)) answered++;
+        if (countsToScore(tpl.kind, v)) {
+          scored++;
+          if (tpl.kind === "condition") gradeSum += Number(v);
+        }
+        if (isAdverse(tpl.kind, v)) {
+          adverse++;
+          findingsCount += (r.findings || []).length;
+        }
+      });
+    });
+    var score = null, scoreLabel = "";
+    if (tpl.kind === "condition" && scored) {
+      score = Math.round((gradeSum / scored) * 10) / 10;
+      scoreLabel = "Avg condition";
+    } else if (scored) {
+      score = Math.round(((scored - adverse) / scored) * 100);
+      scoreLabel = tpl.kind === "audit" ? "Pass rate" : "Verified";
+    }
+    return {
+      total: total, answered: answered, scored: scored, adverse: adverse,
+      findingsCount: findingsCount,
+      pct: total ? Math.round((answered / total) * 100) : 0,
+      score: score, scoreLabel: scoreLabel
+    };
+  }
+
+  /* RAG on the headline score, so the summary reads the same way as the board pack. */
+  function scoreTone(kind, score) {
+    if (score === null || score === undefined) return "muted";
+    if (kind === "condition") return score <= 2.4 ? "ok" : (score <= 3.2 ? "warn" : "bad");
+    return score >= 95 ? "ok" : (score >= 85 ? "warn" : "bad");
+  }
+
+  function findings(insp) {
+    var tpl = templateById(insp.templateId);
+    if (!tpl) return [];
+    var res = responsesOf(insp), out = [];
+    tpl.sections.forEach(function (sec) {
+      sec.items.forEach(function (item) {
+        var r = res[item.id] || {};
+        if (!isAdverse(tpl.kind, r.value)) return;
+        var fl = r.findings || [];
+        fl.forEach(function (f, idx) {
+          out.push({
+            sectionTitle: sec.title, cat: sec.cat, item: item,
+            value: r.value, label: f.label || "", note: f.note || "",
+            photos: f.photos || [], target: f.target || "", owner: f.owner || "",
+            findingId: f.id, findingIndex: idx, totalFindings: fl.length
+          });
+        });
+      });
+    });
+    return out;
+  }
+
+  /* Severity mapping into the Ledger's Low/Medium/High. Grade 5 and any hard fail
+     land as High deliberately — an inspector's job is to surface it, and it is far
+     cheaper to downgrade one on the register than to miss it. */
+  function severityFor(kind, value) {
+    if (kind === "condition") return Number(value) >= 5 ? "High" : "Medium";
+    if (kind === "audit") return "High";
+    return "Medium";
+  }
+  function targetDaysFor(kind, value) {
+    if (kind === "condition") return Number(value) >= 5 ? 30 : 180;
+    if (kind === "audit") return 14;
+    return 30;
+  }
+
+  /* ======================================================================
+     NAV + RENDER DISPATCH
+     ====================================================================== */
+
+  function go(page, id) {
+    state.ui.page = page;
+    if (id !== undefined) state.ui.openId = id;
+    save();
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  function render() {
+    var el = document.getElementById("content");
+    var page = state.ui.page || "home";
+    if (page === "run" || page === "summary") {
+      var insp = inspectionById(state.ui.openId);
+      if (!insp) { state.ui.page = "home"; page = "home"; }
+    }
+    if (page === "home") el.innerHTML = homeMarkup();
+    else if (page === "run") el.innerHTML = runMarkup(inspectionById(state.ui.openId));
+    else if (page === "summary") el.innerHTML = summaryMarkup(inspectionById(state.ui.openId));
+    else if (page === "about") el.innerHTML = aboutMarkup();
+    bind(page);
+  }
+
+  /* ======================================================================
+     HOME — inspection list + new inspection
+     ====================================================================== */
+
+  function homeMarkup() {
+    var list = state.inspections.slice().sort(function (a, b) {
+      return (b.date || "").localeCompare(a.date || "") || (b.id > a.id ? 1 : -1);
+    });
+
+    var html = '<div class="card">' +
+      '<span class="eyebrow">New inspection</span>' +
+      '<div class="row">' +
+        '<label class="field grow" style="margin:0;min-width:150px"><span>Venue</span><select id="newVenue">' +
+          VENUES.map(function (v) {
+            return '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + ' — ' + escapeHtml(v.full) + '</option>';
+          }).join("") +
+        '</select></label>' +
+        '<label class="field grow" style="margin:0;min-width:150px"><span>Type</span><select id="newTemplate">' +
+          TEMPLATES.map(function (t) {
+            return '<option value="' + t.id + '">' + escapeHtml(t.name) + '</option>';
+          }).join("") +
+        '</select></label>' +
+      '</div>' +
+      '<div class="row" style="margin-top:10px">' +
+        '<label class="field grow" style="margin:0;min-width:130px"><span>Date</span>' +
+          '<input type="date" id="newDate" value="' + todayISO() + '"></label>' +
+        '<label class="field grow" style="margin:0;min-width:130px"><span>Inspector</span>' +
+          '<input type="text" id="newInspector" placeholder="Your name" value="' + escapeHtml(lastInspector()) + '"></label>' +
+      '</div>' +
+      '<div class="muted" id="tplBlurb" style="margin:8px 0 10px"></div>' +
+      '<button class="btn btn-primary" id="startBtn">Start inspection</button>' +
+      '</div>';
+
+    html += '<div class="card"><span class="eyebrow">Inspections (' + list.length + ')</span>';
+    if (!list.length) {
+      html += '<div class="empty">Nothing logged yet.<br>Start one above — it saves as you go and works with no signal.</div>';
+    } else {
+      html += list.map(function (i) {
+        var tpl = templateById(i.templateId);
+        var s = stats(i);
+        var tone = i.status === "Complete" ? scoreTone(tpl ? tpl.kind : "", s.score) : "info";
+        var badge = i.status === "Complete"
+          ? (s.score === null ? "—" : (tpl && tpl.kind === "condition" ? s.score.toFixed(1) : s.score + "%"))
+          : s.pct + "% done";
+        return '<div class="insp-row" data-open="' + i.id + '">' +
+          '<div class="grow">' +
+            '<div class="insp-title">' + escapeHtml(i.site) + ' — ' + escapeHtml(tpl ? tpl.name : i.templateId) + '</div>' +
+            '<div class="muted">' + escapeHtml(fmtDate(i.date)) + (i.inspector ? ' · ' + escapeHtml(i.inspector) : '') +
+              (s.findingsCount ? ' · <strong style="color:var(--bad)">' + s.findingsCount + ' finding' + (s.findingsCount === 1 ? '' : 's') + '</strong>' : '') +
+            '</div>' +
+          '</div>' +
+          '<span class="pill pill-' + tone + '">' + escapeHtml(badge) + '</span>' +
+        '</div>';
+      }).join("");
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function lastInspector() {
+    for (var i = state.inspections.length - 1; i >= 0; i--) {
+      if (state.inspections[i].inspector) return state.inspections[i].inspector;
+    }
+    return "";
+  }
+
+  /* ======================================================================
+     RUNNER — the on-site screen
+     ====================================================================== */
+
+  function runMarkup(insp) {
+    var tpl = templateById(insp.templateId);
+    if (!tpl) return '<div class="card">Unknown template.</div>';
+    var s = stats(insp);
+    var res = responsesOf(insp);
+
+    var html = '<div class="progress-bar">' +
+      '<div class="row">' +
+        '<div class="grow"><strong>' + escapeHtml(insp.site) + '</strong> · ' + escapeHtml(tpl.name) +
+          '<div class="muted">' + escapeHtml(fmtDate(insp.date)) + (insp.inspector ? ' · ' + escapeHtml(insp.inspector) : '') + '</div>' +
+        '</div>' +
+        '<button class="btn btn-sm" id="toSummary">Summary</button>' +
+      '</div>' +
+      '<div class="muted" style="margin-top:6px">' + s.answered + ' of ' + s.total + ' answered' +
+        (s.findingsCount ? ' · <strong style="color:var(--bad)">' + s.findingsCount + ' finding' + (s.findingsCount === 1 ? '' : 's') + '</strong>' : '') + '</div>' +
+      '<div class="meter"><i style="width:' + s.pct + '%"></i></div>' +
+    '</div>';
+
+    tpl.sections.forEach(function (sec) {
+      var done = 0, adv = 0;
+      sec.items.forEach(function (item) {
+        var v = (res[item.id] || {}).value;
+        if (isAnswered(v)) done++;
+        if (isAdverse(tpl.kind, v)) adv++;
+      });
+      var complete = done === sec.items.length;
+      html += '<details class="section"' + (complete ? '' : ' open') + '>' +
+        '<summary>' +
+          '<span class="pill ' + (adv ? 'pill-bad' : (complete ? 'pill-ok' : 'pill-muted')) + '">' +
+            (adv ? adv + ' ✕' : done + '/' + sec.items.length) + '</span>' +
+          '<span>' + escapeHtml(sec.title) + '</span>' +
+        '</summary>' +
+        '<div class="section-body">' +
+          sec.items.map(function (item) { return itemMarkup(tpl, item, res[item.id] || {}); }).join("") +
+        '</div>' +
+      '</details>';
+    });
+
+    html += '<div class="card no-print"><div class="row">' +
+      '<button class="btn btn-primary grow" id="finishBtn">' +
+        (insp.status === "Complete" ? "Reopen inspection" : "Mark complete &amp; review") + '</button>' +
+      '<button class="btn btn-danger" id="deleteBtn">Delete</button>' +
+    '</div></div>';
+    return html;
+  }
+
+  function itemMarkup(tpl, item, r) {
+    var opts = optsFor(tpl.kind);
+    var adverse = isAdverse(tpl.kind, r.value);
+    var html = '<div class="item" data-item="' + item.id + '">' +
+      '<div class="item-text">' + escapeHtml(item.text) + '</div>' +
+      (item.guide ? '<div class="item-guide">' + escapeHtml(item.guide) + '</div>' : '') +
+      '<div class="seg">' + opts.map(function (o) {
+        return '<button type="button" data-val="' + escapeHtml(o.v) + '" data-tone="' + o.tone + '" ' +
+          'aria-pressed="' + (String(r.value) === String(o.v) ? "true" : "false") + '">' + escapeHtml(o.label) + '</button>';
+      }).join("") + '</div>';
+
+    if (tpl.kind === "condition" && isAnswered(r.value)) {
+      var g = GRADES.filter(function (x) { return String(x.v) === String(r.value); })[0];
+      if (g) html += '<div class="item-guide" style="margin:6px 0 0"><strong>' + escapeHtml(g.name) + '</strong> — ' + escapeHtml(g.hint) + '</div>';
+    }
+
+    if (isAnswered(r.value) && adverse) {
+      var fl = r.findings || [];
+      fl.forEach(function (f, idx) {
+        html += '<div class="finding-card" data-finding="' + f.id + '">' +
+          '<div class="finding-head">' +
+            '<span>Finding ' + (idx + 1) + '</span>' +
+            (fl.length > 1 ? '<button class="btn btn-sm btn-danger" data-rmfinding="' + f.id + '">Remove</button>' : '') +
+          '</div>' +
+          '<label class="field" style="margin:0 0 6px"><span>Defect</span>' +
+            '<input type="text" data-flabel placeholder="Short description — e.g. kitchen roof blister" value="' + escapeHtml(f.label || "") + '"></label>' +
+          '<textarea data-fnote placeholder="Detail — what is wrong, where exactly, what needs doing">' + escapeHtml(f.note || "") + '</textarea>' +
+          '<div class="row" style="margin-top:8px">' +
+            '<label class="field grow" style="margin:0;min-width:130px"><span>Target date</span>' +
+              '<input type="date" data-ftarget value="' + escapeHtml(f.target || "") + '"></label>' +
+            '<label class="field grow" style="margin:0;min-width:130px"><span>Owner</span>' +
+              '<input type="text" data-fowner placeholder="e.g. Dalkia" value="' + escapeHtml(f.owner || "") + '"></label>' +
+          '</div>' +
+          '<div class="row" style="margin-top:8px">' +
+            '<button class="btn btn-sm" data-fphoto="' + f.id + '">📷 Add photo</button>' +
+            '<span class="muted" data-fphotocount="' + f.id + '">' + (f.photos && f.photos.length ? f.photos.length + ' attached' : '') + '</span>' +
+          '</div>' +
+          '<div class="thumbs" data-fthumbs="' + f.id + '"></div>' +
+        '</div>';
+      });
+      html += '<button class="btn btn-sm" style="margin-top:8px" data-addfinding>+ Add another finding</button>';
+    } else if (isAnswered(r.value)) {
+      html += '<div class="answer-extra">' +
+        '<textarea data-note placeholder="Note (optional)">' + escapeHtml(r.note || "") + '</textarea>' +
+        '<div class="row" style="margin-top:8px">' +
+          '<button class="btn btn-sm" data-photo>📷 Add photo</button>' +
+          '<span class="muted" data-photocount>' + ((r.photos || []).length ? (r.photos.length + " attached") : "") + '</span>' +
+        '</div>' +
+        '<div class="thumbs" data-thumbs></div>' +
+      '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  /* Thumbnails are filled in after render: reading them out of IndexedDB is async and
+     blocking the whole re-render on it would make every tap feel slow on a phone. */
+  function fillThumbs(insp) {
+    var res = responsesOf(insp);
+    Array.prototype.forEach.call(document.querySelectorAll("[data-item]"), function (row) {
+      var box = row.querySelector("[data-thumbs]");
+      if (box) {
+        var ids = (res[row.getAttribute("data-item")] || {}).photos || [];
+        box.innerHTML = "";
+        ids.forEach(function (pid) {
+          getPhoto(pid).then(function (src) {
+            if (!src) return;
+            var d = document.createElement("div");
+            d.className = "thumb";
+            d.innerHTML = '<img alt="">' + '<button type="button" data-rmphoto="' + escapeHtml(pid) + '" title="Remove">✕</button>';
+            d.querySelector("img").src = src;
+            box.appendChild(d);
+          });
+        });
+      }
+      Array.prototype.forEach.call(row.querySelectorAll("[data-fthumbs]"), function (fbox) {
+        var fid = fbox.getAttribute("data-fthumbs");
+        var r = res[row.getAttribute("data-item")] || {};
+        var fl = r.findings || [];
+        var f = null;
+        for (var i = 0; i < fl.length; i++) { if (fl[i].id === fid) { f = fl[i]; break; } }
+        if (!f) return;
+        fbox.innerHTML = "";
+        (f.photos || []).forEach(function (pid) {
+          getPhoto(pid).then(function (src) {
+            if (!src) return;
+            var d = document.createElement("div");
+            d.className = "thumb";
+            d.innerHTML = '<img alt="">' + '<button type="button" data-rmfphoto="' + escapeHtml(pid) + '" title="Remove">✕</button>';
+            d.querySelector("img").src = src;
+            fbox.appendChild(d);
+          });
+        });
+      });
+    });
+  }
+
+  /* ======================================================================
+     SUMMARY / REPORT
+     ====================================================================== */
+
+  function summaryMarkup(insp) {
+    var tpl = templateById(insp.templateId);
+    var s = stats(insp);
+    var f = findings(insp);
+    var tone = scoreTone(tpl ? tpl.kind : "", s.score);
+
+    var html = '<div class="card">' +
+      '<div class="row no-print"><button class="btn btn-sm" id="backToRun">← Back to inspection</button></div>' +
+      '<h2 style="margin:10px 0 2px">' + escapeHtml(insp.site) + ' — ' + escapeHtml(tpl ? tpl.name : "") + '</h2>' +
+      '<div class="muted">' + escapeHtml(fmtDate(insp.date)) +
+        (insp.inspector ? ' · ' + escapeHtml(insp.inspector) : '') +
+        ' · ' + escapeHtml(insp.status) + '</div>' +
+      '<div class="score-grid" style="margin-top:12px">' +
+        '<div class="score-tile"><span class="eyebrow">' + escapeHtml(s.scoreLabel || "Score") + '</span>' +
+          '<b style="color:var(--' + (tone === "muted" ? "ink-muted" : tone) + ')">' +
+            (s.score === null ? "—" : (tpl && tpl.kind === "condition" ? s.score.toFixed(1) : s.score + "%")) + '</b></div>' +
+        '<div class="score-tile"><span class="eyebrow">Answered</span><b>' + s.answered + '<span class="muted" style="font-size:14px">/' + s.total + '</span></b></div>' +
+        '<div class="score-tile"><span class="eyebrow">Findings</span><b style="color:' + (f.length ? 'var(--bad)' : 'var(--ok)') + '">' + f.length + '</b></div>' +
+        '<div class="score-tile"><span class="eyebrow">Scored items</span><b>' + s.scored + '</b></div>' +
+      '</div>';
+
+    if (s.answered < s.total) {
+      html += '<div class="muted" style="margin-top:10px">' + (s.total - s.answered) +
+        ' item' + ((s.total - s.answered) === 1 ? '' : 's') + ' still unanswered — the score covers what has been assessed, not the whole template.</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="card"><span class="eyebrow">Findings (' + f.length + ')</span>';
+    if (!f.length) {
+      html += '<div class="empty">No adverse findings recorded.</div>';
+    } else {
+      html += '<div class="table-scroll"><table class="rep"><thead><tr>' +
+        '<th>Area</th><th>Item</th><th>Defect</th><th>Result</th><th>Note</th><th>Target</th><th>Owner</th>' +
+        '</tr></thead><tbody>' +
+        f.map(function (x) {
+          return '<tr>' +
+            '<td>' + escapeHtml(x.sectionTitle) + '</td>' +
+            '<td>' + escapeHtml(x.item.text) + '</td>' +
+            '<td>' + escapeHtml(x.label) + '</td>' +
+            '<td><span class="pill pill-bad">' + escapeHtml(resultLabel(tpl.kind, x.value)) + '</span></td>' +
+            '<td>' + escapeHtml(x.note) + (x.photos.length ? ' <span class="muted">(' + x.photos.length + ' photo)</span>' : '') + '</td>' +
+            '<td>' + escapeHtml(fmtDate(x.target)) + '</td>' +
+            '<td>' + escapeHtml(x.owner) + '</td>' +
+          '</tr>';
+        }).join("") +
+        '</tbody></table></div>';
+    }
+    html += '</div>';
+
+    html += '<div class="card no-print"><span class="eyebrow">Output</span>' +
+      '<div class="row">' +
+        '<button class="btn btn-primary" id="expLedger">Export findings for the Ledger (.csv)</button>' +
+        '<button class="btn" id="expJobs">Contractor job list (.csv)</button>' +
+        '<button class="btn" id="expCsv">Full results (.csv)</button>' +
+        '<button class="btn" id="printBtn">Print / save as PDF</button>' +
+      '</div>' +
+      '<div class="muted" style="margin-top:10px">' +
+        '<strong>Ledger export</strong> — ISSUES block for ⋮ → Merge in data. Only adds, skips duplicates. ' +
+        '<strong>Contractor job list</strong> — one row per defect, hand straight to Dalkia to raise on Aurora. ' +
+        'Photos stay in this app; use Print / save as PDF for the evidence pack.' +
+      '</div></div>';
+    return html;
+  }
+
+  function resultLabel(kind, v) {
+    if (kind === "condition") {
+      var g = GRADES.filter(function (x) { return String(x.v) === String(v); })[0];
+      return g ? (g.v + " — " + g.name) : String(v);
+    }
+    var o = optsFor(kind).filter(function (x) { return x.v === v; })[0];
+    return o ? o.label : String(v);
+  }
+
+  /* ======================================================================
+     EXPORT
+
+     csvCell prefixes a quote to anything starting = + - @ so a note typed on
+     site can never be interpreted as a formula when the file is opened in
+     Excel. Same guard as the Ledger's exporter.
+     ====================================================================== */
+
+  function csvCell(v) {
+    var s = v === undefined || v === null ? "" : String(v);
+    if (/^[=+\-@]/.test(s)) s = "'" + s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  function csvRows(rows) {
+    return rows.map(function (r) { return r.map(csvCell).join(","); }).join("\r\n");
+  }
+  function download(name, text, mime) {
+    var blob = new Blob([text], { type: (mime || "text/csv") + ";charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+  }
+  function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+
+  /* Titles must be stable and specific: the Ledger dedupes on title + venue, so the
+     same defect found on a re-inspection has to produce the identical title or it
+     lands twice. Area + item text does that; the note deliberately does not appear. */
+  function ledgerTitle(x) {
+    var base = x.sectionTitle + " — " + x.item.text;
+    if (x.label) return base + " — " + x.label;
+    if (x.totalFindings > 1) return base + " (" + (x.findingIndex + 1) + ")";
+    return base;
+  }
+
+  function exportLedgerCsv(insp) {
+    var tpl = templateById(insp.templateId);
+    var f = findings(insp);
+    if (!f.length) { showToast("No adverse findings to export."); return; }
+    var header = ["Title", "Site", "Category", "Status", "Risk", "Urgency", "Cost impact",
+                  "Assigned", "Date reported", "Target date", "Tags", "Description"];
+    var rows = f.map(function (x) {
+      var sev = severityFor(tpl.kind, x.value);
+      var target = x.target || addDaysISO(insp.date || todayISO(), targetDaysFor(tpl.kind, x.value));
+      var desc = (x.label ? x.label + ". " : "") + resultLabel(tpl.kind, x.value) + "." +
+        (x.note ? " " + x.note : "") +
+        " [" + tpl.name + ", " + insp.site + ", " + fmtDate(insp.date) +
+        (insp.inspector ? ", " + insp.inspector : "") + "]" +
+        (x.photos.length ? " (" + x.photos.length + " photo(s) held in the Inspections app)" : "");
+      return [
+        ledgerTitle(x), insp.site, x.cat, "Open", sev, sev,
+        tpl.kind === "condition" && Number(x.value) >= 5 ? "High" : "Medium",
+        x.owner || "", insp.date || todayISO(), target,
+        "inspection," + tpl.id, desc
+      ];
+    });
+    var text = "ISSUES\r\n" + csvRows([header].concat(rows)) + "\r\n";
+    download("ledger-merge-" + slug(insp.site) + "-" + (insp.date || todayISO()) + ".csv", text);
+    showToast(f.length + " finding(s) exported. Merge it in the Ledger under ⋮ → Merge in data.");
+  }
+
+  function exportFullCsv(insp) {
+    var tpl = templateById(insp.templateId);
+    var res = responsesOf(insp);
+    var rows = [["Area", "Item", "Result", "Adverse", "Defect", "Note", "Target", "Owner", "Photos"]];
+    tpl.sections.forEach(function (sec) {
+      sec.items.forEach(function (item) {
+        var r = res[item.id] || {};
+        if (isAdverse(tpl.kind, r.value) && r.findings && r.findings.length) {
+          r.findings.forEach(function (f) {
+            rows.push([
+              sec.title, item.text, resultLabel(tpl.kind, r.value), "Yes",
+              f.label || "", f.note || "", f.target || "", f.owner || "",
+              (f.photos || []).length || ""
+            ]);
+          });
+        } else {
+          rows.push([
+            sec.title, item.text,
+            isAnswered(r.value) ? resultLabel(tpl.kind, r.value) : "",
+            isAdverse(tpl.kind, r.value) ? "Yes" : "",
+            "", r.note || "", "", "", (r.photos || []).length || ""
+          ]);
+        }
+      });
+    });
+    var head = [
+      ["Inspection", tpl.name], ["Venue", insp.site], ["Date", insp.date],
+      ["Inspector", insp.inspector || ""], ["Status", insp.status], []
+    ];
+    download("inspection-" + slug(insp.site) + "-" + slug(tpl.id) + "-" + (insp.date || todayISO()) + ".csv",
+             csvRows(head.concat(rows)) + "\r\n");
+  }
+
+  function exportContractorCsv(insp) {
+    var tpl = templateById(insp.templateId);
+    var f = findings(insp);
+    if (!f.length) { showToast("No findings to export."); return; }
+    var header = ["Ref", "Venue", "Location", "Defect", "Description", "Priority",
+                  "Target date", "Owner", "Photos", "Source"];
+    var rows = f.map(function (x, i) {
+      var sev = severityFor(tpl.kind, x.value);
+      var target = x.target || addDaysISO(insp.date || todayISO(), targetDaysFor(tpl.kind, x.value));
+      var defect = x.label || x.item.text;
+      var desc = (x.note ? x.note + " " : "") + "(" + resultLabel(tpl.kind, x.value) + ")";
+      return [
+        String(i + 1), insp.site, x.sectionTitle + " — " + x.item.text,
+        defect, desc, sev, target, x.owner || "",
+        x.photos.length ? x.photos.length + " in app" : "",
+        tpl.name + ", " + fmtDate(insp.date)
+      ];
+    });
+    download("jobs-" + slug(insp.site) + "-" + (insp.date || todayISO()) + ".csv",
+             csvRows([header].concat(rows)) + "\r\n");
+    showToast(f.length + " job(s) exported for the contractor.");
+  }
+
+  /* ======================================================================
+     BACKUP / RESTORE
+
+     Photos are included. An inspection backup without its evidence photos is
+     not a backup of an inspection — it is a list of opinions.
+     ====================================================================== */
+
+  function exportBackup() {
+    allPhotos().then(function (photos) {
+      var payload = {
+        app: "metro-inspections", formatVersion: 1,
+        exportedAt: new Date().toISOString(),
+        inspections: state.inspections, photos: photos
+      };
+      var json = JSON.stringify(payload);
+      download("inspections-backup-" + todayISO() + ".json", json, "application/json");
+      var mb = (json.length / 1048576).toFixed(1);
+      showToast("Backup downloaded — " + state.inspections.length + " inspection(s), " +
+                Object.keys(photos).length + " photo(s), " + mb + " MB.");
+    });
+  }
+
+  function restoreBackup(text) {
+    var data;
+    try { data = JSON.parse(text); }
+    catch (e) { showToast("That file isn't valid JSON."); return; }
+
+    if (data && data.app && data.app !== "metro-inspections") {
+      showToast("That's a backup from a different app — this only restores Inspections backups.");
+      return;
+    }
+    if (!data || !Array.isArray(data.inspections)) {
+      showToast("No inspections in that file — nothing restored.");
+      return;
+    }
+    var photoCount = data.photos ? Object.keys(data.photos).length : 0;
+    var hasPhotoKey = !!data.photos;
+    confirmAction(
+      "Restore " + data.inspections.length + " inspection(s)" +
+      (hasPhotoKey ? " and " + photoCount + " photo(s)" : "") +
+      "? This REPLACES the " + state.inspections.length + " inspection(s) currently on this device." +
+      (hasPhotoKey ? "" : " The file has no photos section, so existing photos will be left alone."),
+      function () {
+        state.inspections = data.inspections;
+        state.ui.openId = null; state.ui.page = "home";
+        storageHalted = false;                 // an explicit restore is the sanctioned way to recover
+        save();
+        var writes = hasPhotoKey
+          ? Object.keys(data.photos).map(function (k) { return putPhoto(k, data.photos[k]); })
+          : [];
+        Promise.all(writes).then(function () {
+          render();
+          showToast("Restored " + data.inspections.length + " inspection(s)" +
+                    (hasPhotoKey ? " and " + photoCount + " photo(s)." : "."));
+        });
+      }
+    );
+  }
+
+  /* ======================================================================
+     ABOUT
+     ====================================================================== */
+
+  function aboutMarkup() {
+    var used = 0;
+    try { used = (localStorage.getItem(STORE_KEY) || "").length; } catch (e) {}
+    return '<div class="card">' +
+      '<div class="row no-print"><button class="btn btn-sm" id="backHome">← Back</button></div>' +
+      '<h2 style="margin:10px 0 8px">About</h2>' +
+      '<p class="muted">Third app in the Metropolitan Estates set, alongside the Estates Ledger and the ' +
+      'Project &amp; Compliance Board. One self-contained file — it runs with no signal and keeps ' +
+      'everything in this browser. Nothing is sent anywhere.</p>' +
+      '<span class="eyebrow" style="margin-top:14px">Storage</span>' +
+      '<div class="muted">' + state.inspections.length + ' inspection(s), roughly ' +
+        (used / 1024).toFixed(0) + ' KB of answers. Photos are held separately in this browser\'s ' +
+        'IndexedDB and are included in the backup file.' + '</div>' +
+      '<span class="eyebrow" style="margin-top:14px">Getting findings onto the register</span>' +
+      '<div class="muted">Finish an inspection, open its summary, and use ' +
+        '<strong>Export findings for the Ledger</strong>. In the Estates Ledger choose ⋮ → ' +
+        '<strong>Merge in data</strong>. That import only ever adds and skips anything already ' +
+        'logged under the same title and venue, so re-inspecting a venue will not duplicate ' +
+        'what is already open.</div>' +
+      '<span class="eyebrow" style="margin-top:14px">Back it up</span>' +
+      '<div class="muted">Browser storage is not a filing system. Take a backup after every site ' +
+        'visit — the file contains the photos too.</div>' +
+      '</div>';
+  }
+
+  /* ======================================================================
+     EVENT BINDING
+     ====================================================================== */
+
+  function bind(page) {
+    if (page === "home") bindHome();
+    else if (page === "run") bindRun();
+    else if (page === "summary") bindSummary();
+    else if (page === "about") {
+      document.getElementById("backHome").addEventListener("click", function () { go("home"); });
+    }
+  }
+
+  function bindHome() {
+    var tplSel = document.getElementById("newTemplate");
+    var blurb = document.getElementById("tplBlurb");
+    function updateBlurb() {
+      var t = templateById(tplSel.value);
+      blurb.textContent = t ? t.blurb : "";
+    }
+    tplSel.addEventListener("change", updateBlurb);
+    updateBlurb();
+
+    document.getElementById("startBtn").addEventListener("click", function () {
+      var insp = {
+        id: uid(),
+        templateId: tplSel.value,
+        site: document.getElementById("newVenue").value,
+        date: document.getElementById("newDate").value || todayISO(),
+        inspector: document.getElementById("newInspector").value.trim(),
+        status: "In progress",
+        responses: {},
+        startedAt: new Date().toISOString()
+      };
+      state.inspections.push(insp);
+      save();
+      go("run", insp.id);
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-open]"), function (row) {
+      row.addEventListener("click", function () {
+        var id = row.getAttribute("data-open");
+        var insp = inspectionById(id);
+        go(insp && insp.status === "Complete" ? "summary" : "run", id);
+      });
+    });
+  }
+
+  function bindRun() {
+    var insp = inspectionById(state.ui.openId);
+    if (!insp) return;
+    var tpl = templateById(insp.templateId);
+    var res = responsesOf(insp);
+
+    function recordFor(itemId) {
+      if (!res[itemId]) res[itemId] = {};
+      return res[itemId];
+    }
+    function findingById(rec, fid) {
+      var fl = rec.findings || [];
+      for (var i = 0; i < fl.length; i++) { if (fl[i].id === fid) return fl[i]; }
+      return null;
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-item]"), function (row) {
+      var itemId = row.getAttribute("data-item");
+
+      Array.prototype.forEach.call(row.querySelectorAll(".seg > button"), function (b) {
+        b.addEventListener("click", function () {
+          var rec = recordFor(itemId);
+          var v = b.getAttribute("data-val");
+          var wasAdverse = isAdverse(tpl.kind, rec.value);
+          rec.value = (String(rec.value) === String(v)) ? "" : v;
+          var nowAdverse = isAdverse(tpl.kind, rec.value);
+          if (nowAdverse && !wasAdverse) {
+            if (!rec.findings) rec.findings = [];
+            if (rec.note || (rec.photos && rec.photos.length)) {
+              rec.findings.unshift({
+                id: uid(), label: "", note: rec.note || "",
+                photos: rec.photos || [], target: rec.target || "", owner: rec.owner || ""
+              });
+              delete rec.note; delete rec.photos; delete rec.target; delete rec.owner;
+            }
+            if (rec.findings.length === 0) {
+              rec.findings.push({ id: uid(), label: "", note: "", photos: [], target: "", owner: "" });
+            }
+          }
+          save();
+          rerunPreservingScroll();
+        });
+      });
+
+      var note = row.querySelector("[data-note]");
+      if (note) {
+        note.addEventListener("input", function () { recordFor(itemId).note = note.value; save(); });
+      }
+      var photoBtn = row.querySelector("[data-photo]");
+      if (photoBtn) {
+        photoBtn.addEventListener("click", function () {
+          pendingPhotoTarget = { type: "item", itemId: itemId };
+          photoInput.value = ""; photoInput.click();
+        });
+      }
+      row.addEventListener("click", function (e) {
+        var rm = e.target.closest ? e.target.closest("[data-rmphoto]") : null;
+        if (!rm) return;
+        var pid = rm.getAttribute("data-rmphoto");
+        var rec = recordFor(itemId);
+        if (!rec.photos) rec.photos = [];
+        rec.photos = rec.photos.filter(function (p) { return p !== pid; });
+        save();
+        deletePhoto(pid).then(function () { rerunPreservingScroll(); });
+      });
+
+      Array.prototype.forEach.call(row.querySelectorAll("[data-finding]"), function (card) {
+        var fid = card.getAttribute("data-finding");
+        var flabel = card.querySelector("[data-flabel]");
+        if (flabel) flabel.addEventListener("input", function () {
+          var f = findingById(recordFor(itemId), fid);
+          if (f) { f.label = flabel.value; save(); }
+        });
+        var fnote = card.querySelector("[data-fnote]");
+        if (fnote) fnote.addEventListener("input", function () {
+          var f = findingById(recordFor(itemId), fid);
+          if (f) { f.note = fnote.value; save(); }
+        });
+        var ftarget = card.querySelector("[data-ftarget]");
+        if (ftarget) ftarget.addEventListener("change", function () {
+          var f = findingById(recordFor(itemId), fid);
+          if (f) { f.target = ftarget.value; save(); }
+        });
+        var fowner = card.querySelector("[data-fowner]");
+        if (fowner) fowner.addEventListener("input", function () {
+          var f = findingById(recordFor(itemId), fid);
+          if (f) { f.owner = fowner.value; save(); }
+        });
+        var fphotoBtn = card.querySelector("[data-fphoto]");
+        if (fphotoBtn) fphotoBtn.addEventListener("click", function () {
+          pendingPhotoTarget = { type: "finding", itemId: itemId, findingId: fid };
+          photoInput.value = ""; photoInput.click();
+        });
+        var rmBtn = card.querySelector("[data-rmfinding]");
+        if (rmBtn) rmBtn.addEventListener("click", function () {
+          var rec = recordFor(itemId);
+          var f = findingById(rec, fid);
+          if (!f) return;
+          var pids = f.photos || [];
+          rec.findings = rec.findings.filter(function (x) { return x.id !== fid; });
+          save();
+          Promise.all(pids.map(deletePhoto)).then(function () { rerunPreservingScroll(); });
+        });
+        card.addEventListener("click", function (e) {
+          var rm = e.target.closest ? e.target.closest("[data-rmfphoto]") : null;
+          if (!rm) return;
+          var pid = rm.getAttribute("data-rmfphoto");
+          var f = findingById(recordFor(itemId), fid);
+          if (f) {
+            f.photos = (f.photos || []).filter(function (p) { return p !== pid; });
+            save();
+            deletePhoto(pid).then(function () { rerunPreservingScroll(); });
+          }
+        });
+      });
+
+      var addBtn = row.querySelector("[data-addfinding]");
+      if (addBtn) addBtn.addEventListener("click", function () {
+        var rec = recordFor(itemId);
+        if (!rec.findings) rec.findings = [];
+        rec.findings.push({ id: uid(), label: "", note: "", photos: [], target: "", owner: "" });
+        save();
+        rerunPreservingScroll();
+      });
+    });
+
+    document.getElementById("toSummary").addEventListener("click", function () { go("summary", insp.id); });
+
+    document.getElementById("finishBtn").addEventListener("click", function () {
+      if (insp.status === "Complete") {
+        insp.status = "In progress"; insp.completedAt = null; save(); render(); return;
+      }
+      var s = stats(insp);
+      var finish = function () {
+        insp.status = "Complete";
+        insp.completedAt = new Date().toISOString();
+        save();
+        go("summary", insp.id);
+      };
+      if (s.answered < s.total) {
+        confirmAction((s.total - s.answered) + " item(s) are unanswered. Mark this inspection " +
+          "complete anyway? The score will only cover what you assessed.", finish);
+      } else finish();
+    });
+
+    document.getElementById("deleteBtn").addEventListener("click", function () {
+      confirmAction("Delete this inspection and its photos? This cannot be undone.", function () {
+        var ids = [];
+        Object.keys(res).forEach(function (k) {
+          (res[k].photos || []).forEach(function (p) { ids.push(p); });
+          (res[k].findings || []).forEach(function (f) {
+            (f.photos || []).forEach(function (p) { ids.push(p); });
+          });
+        });
+        state.inspections = state.inspections.filter(function (i) { return i.id !== insp.id; });
+        save();
+        Promise.all(ids.map(deletePhoto)).then(function () { go("home"); });
+      });
+    });
+
+    fillThumbs(insp);
+  }
+
+  /* Re-rendering the whole page on every tap is fine on a phone, but losing your place
+     in a 60-item template is not. Keep the scroll offset and the open sections. */
+  function rerunPreservingScroll() {
+    var y = window.scrollY;
+    var open = {};
+    Array.prototype.forEach.call(document.querySelectorAll("details.section"), function (d, i) {
+      open[i] = d.open;
+    });
+    render();
+    Array.prototype.forEach.call(document.querySelectorAll("details.section"), function (d, i) {
+      if (open[i] !== undefined) d.open = open[i];
+    });
+    window.scrollTo(0, y);
+  }
+
+  function bindSummary() {
+    var insp = inspectionById(state.ui.openId);
+    if (!insp) return;
+    document.getElementById("backToRun").addEventListener("click", function () { go("run", insp.id); });
+    document.getElementById("expLedger").addEventListener("click", function () { exportLedgerCsv(insp); });
+    document.getElementById("expJobs").addEventListener("click", function () { exportContractorCsv(insp); });
+    document.getElementById("expCsv").addEventListener("click", function () { exportFullCsv(insp); });
+    document.getElementById("printBtn").addEventListener("click", function () { window.print(); });
+  }
+
+  /* ======================================================================
+     PHOTO CAPTURE
+
+     One shared <input capture="environment"> rather than one per item: on a
+     phone this opens the camera directly. pendingPhotoItem remembers which
+     row asked, because the change event has no idea.
+     ====================================================================== */
+
+  var pendingPhotoTarget = null;
+  var photoInput = document.getElementById("photoFile");
+
+  photoInput.addEventListener("change", function (e) {
+    var file = e.target.files[0];
+    var target = pendingPhotoTarget;
+    pendingPhotoTarget = null;
+    if (!file || !target) return;
+    var insp = inspectionById(state.ui.openId);
+    if (!insp) return;
+
+    showToast("Saving photo…");
+    downscale(file).then(function (dataUrl) {
+      var pid = uid();
+      return putPhoto(pid, dataUrl).then(function () {
+        var res = responsesOf(insp);
+        if (target.type === "finding") {
+          var rec = res[target.itemId];
+          if (!rec) return;
+          var fl = rec.findings || [];
+          for (var i = 0; i < fl.length; i++) {
+            if (fl[i].id === target.findingId) {
+              if (!fl[i].photos) fl[i].photos = [];
+              fl[i].photos.push(pid);
+              break;
+            }
+          }
+        } else {
+          if (!res[target.itemId]) res[target.itemId] = {};
+          if (!res[target.itemId].photos) res[target.itemId].photos = [];
+          res[target.itemId].photos.push(pid);
+        }
+        save();
+        rerunPreservingScroll();
+        showToast("Photo attached.");
+      });
+    }).catch(function (err) {
+      console.error(err);
+      showToast("Couldn't save that photo — storage may be full. Take a backup and free some space.");
+    });
+  });
+
+  /* ======================================================================
+     MENU, THEME, INIT
+     ====================================================================== */
+
+  var menu = document.getElementById("menuSheet");
+  function closeMenu() { menu.classList.remove("open"); }
+  document.getElementById("menuBtn").addEventListener("click", function () { menu.classList.toggle("open"); });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-close-menu]"), function (el) {
+    el.addEventListener("click", closeMenu);
+  });
+  document.getElementById("homeBtn").addEventListener("click", function () { go("home"); });
+
+  document.getElementById("mNew").addEventListener("click", function () { closeMenu(); go("home"); });
+  document.getElementById("mAbout").addEventListener("click", function () { closeMenu(); go("about"); });
+  document.getElementById("mBackup").addEventListener("click", function () { closeMenu(); exportBackup(); });
+  document.getElementById("mRestore").addEventListener("click", function () {
+    closeMenu();
+    document.getElementById("restoreFile").click();
+  });
+  document.getElementById("restoreFile").addEventListener("change", function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () { restoreBackup(reader.result); };
+    reader.readAsText(file);
+    e.target.value = "";
+  });
+
+  function applyTheme(t) {
+    if (t) document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+  }
+  try { applyTheme(localStorage.getItem(THEME_KEY)); } catch (e) {}
+  document.getElementById("mTheme").addEventListener("click", function () {
+    closeMenu();
+    var cur = document.documentElement.getAttribute("data-theme");
+    var next = cur === "dark" ? "light" : (cur === "light" ? "dark" : "dark");
+    applyTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+  });
+
+  /* Offline is the whole point — a plant room has no signal. Registration is best
+     effort: file:// and any context without a worker simply carries on without one. */
+  if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("./inspect-sw.js").catch(function () {});
+    });
+  }
+
+  render();
+})();
+</script>
