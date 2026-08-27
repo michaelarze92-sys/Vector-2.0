@@ -249,6 +249,46 @@ the way the Ledger's `__MARK_LOGO__` placeholder does. `alt=""` is deliberate: i
 decorative next to text that already says "Metropolitan Estates," so a screen reader
 shouldn't announce it twice.
 
+## Statutory compliance (`complianceItems`, the Compliance page)
+
+Not a project log — `complianceItems` is a top-level `state` array, not scoped to a
+project, because a fire risk assessment isn't tied to a capital project and exists
+whether or not anything is being built. Each item: `{ id, venueId, type,
+lastCompletedDate, frequencyMonths, contractor, certRef, notes }`.
+
+- **`complianceNextDue()` derives the due date from `lastCompletedDate +
+  frequencyMonths` — it is never its own stored field.** Same "one source of truth"
+  reasoning as `effectiveStageGate()`: a separately-editable due date could silently
+  disagree with when the work was actually last done. If you're tempted to add a
+  `nextDueDate` field to save a recalculation, don't — that's the bug this design
+  avoids.
+- `addMonths(iso, months)` is calendar-month arithmetic, not `+ months*30` days — a
+  31 Jan LOLER completion on a 6-month cycle must land on 31 Jul, and a 31 Jan FRA on
+  a 12-month cycle landing on the next Feb must clamp to 28/29, not roll into March.
+- `COMPLIANCE_TYPES` ships default frequencies (LOLER 6 months, EICR 36, most others
+  12) that auto-fill the frequency field when a type is picked (`data-compliance-type-select`
+  change handler) but stay fully editable per item afterward. **These defaults are a
+  starting point, not regulatory advice** — the same "no H&S sign-off claims" rule from
+  the advisor persona itself applies to what's hardcoded here. Don't present them to
+  Michael as authoritative; they exist so the field isn't blank, not because they're
+  correct for every premises.
+- `COMPLIANCE_DUE_SOON_DAYS = 60` is the RAG threshold: overdue (red) / due within 60
+  days (amber) / compliant (green) / no date set (grey). One constant, change it there
+  rather than duplicating the number anywhere else.
+- Doesn't use the `PROJECT_LOG_ENTITIES` generic add/edit/delete pattern — that pattern
+  assumes a `projectId` scoping every record to one open project's page, which doesn't
+  apply here (compliance is portfolio-wide, its own nav page, not nested inside a
+  project). `bindComplianceEvents()` is bespoke but follows the identical UX shape
+  (form doubles as its own edit form via `editingRecord("complianceItems")`, same
+  `data-edit-id` / "Save changes" / Cancel convention) — same interaction pattern,
+  different wiring, so it still feels like the rest of the app.
+- Surfaces in two other places, both read-only pull-throughs, no separate data: the
+  **Dashboard** (a red banner for anything overdue, a card listing overdue + due-soon
+  items — compliant items deliberately don't appear there, that card is for what needs
+  attention) and the **Calendar** (`complianceItems.forEach` alongside
+  `governanceEventsForMonth`, `unshift`-ed for the same reason governance events are —
+  survive the day cell's `slice(0, 3)` truncation on a busy day).
+
 ## PWA update mechanism (`sw.js` + the update toast)
 
 `sw.js`'s cache name is a SHA-256 hash of `estate-pm.html`'s bytes (`hashCacheName()`),

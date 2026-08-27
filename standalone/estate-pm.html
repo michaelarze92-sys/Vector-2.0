@@ -679,6 +679,64 @@
   function fmtLong(iso) { if (!iso) return "—"; const d = parseISO(iso); return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); }
   function money(n) { n = Number(n) || 0; return "£" + n.toLocaleString(undefined, { maximumFractionDigits: 0 }); }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function addMonths(iso, months) {
+    const d = parseISO(iso);
+    const target = new Date(d.getFullYear(), d.getMonth() + Number(months), 1);
+    const daysInTarget = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    target.setDate(Math.min(d.getDate(), daysInTarget)); // 31 Jan + 1 month must land on 28/29 Feb, not roll into March
+    return toISO(target);
+  }
+
+  /* ============================== COMPLIANCE ============================== */
+  // Statutory compliance is tracked per venue, independent of any project — a fire
+  // risk assessment doesn't belong to a capital project, it's a recurring obligation
+  // that exists whether or not anything is being built. Default frequencies are a
+  // starting point to edit per venue/item, not a source of regulatory truth — this is
+  // the practical groundwork, not a substitute for a qualified assessment of what your
+  // specific premises actually require (see the advisor persona's own "no H&S sign-off
+  // claims" rule — that applies here as much as anywhere).
+  const COMPLIANCE_TYPES = [
+    { label: "Fire Risk Assessment (FRA)", defaultMonths: 12 },
+    { label: "Water Hygiene / Legionella (WRA)", defaultMonths: 12 },
+    { label: "EICR (Electrical)", defaultMonths: 36 },
+    { label: "LOLER (Lifts)", defaultMonths: 6 },
+    { label: "Fire Alarm Service", defaultMonths: 6 },
+    { label: "Emergency Lighting Test", defaultMonths: 12 },
+    { label: "Fire Extinguisher Service", defaultMonths: 12 },
+    { label: "Gas Safety", defaultMonths: 12 },
+    { label: "PAT Testing", defaultMonths: 12 },
+    { label: "Asbestos Re-inspection", defaultMonths: 12 },
+    { label: "Other", defaultMonths: 12 },
+  ];
+  function complianceDefaultMonths(label) {
+    const t = COMPLIANCE_TYPES.find(t => t.label === label);
+    return t ? t.defaultMonths : 12;
+  }
+  // Next-due is always derived from lastCompletedDate + frequencyMonths, never its own
+  // stored field — same "one source of truth" reasoning as effectiveStageGate(): a
+  // separately-editable due date could silently disagree with when the work was
+  // actually last done.
+  function complianceNextDue(item) {
+    if (!item.lastCompletedDate || !item.frequencyMonths) return null;
+    return addMonths(item.lastCompletedDate, item.frequencyMonths);
+  }
+  const COMPLIANCE_DUE_SOON_DAYS = 60;
+  function complianceStatus(item) {
+    const next = complianceNextDue(item);
+    if (!next) return "unknown";
+    const days = daysBetween(todayISO(), next);
+    if (days < 0) return "overdue";
+    if (days <= COMPLIANCE_DUE_SOON_DAYS) return "due-soon";
+    return "compliant";
+  }
+  function complianceStatusChip(item) {
+    const map = {
+      overdue: ["chip-blocked", "Overdue"], "due-soon": ["chip-inprogress", "Due soon"],
+      compliant: ["chip-done", "Compliant"], unknown: ["chip-notstarted", "No date set"],
+    };
+    const [cls, label] = map[complianceStatus(item)];
+    return `<span class="chip ${cls}">${label}</span>`;
+  }
 
   /* ============================== STATE ============================== */
   const STORE_KEY = "metroEstatesPM.v1";
@@ -701,8 +759,8 @@
   function freshState() {
     return { venues: SEED_VENUES.map(v => ({ ...v })), projects: [], tasks: [], budgetLines: [],
       contacts: [], qaItems: [], documents: [], decisions: [], risks: [], meetingNotes: [], tenders: [], budgetCheckpoints: [], lessons: [],
-      stageGateLog: [], ribaStageLog: [],
-      ui: { collapsed: {}, ganttZoom: "week", calMonth: todayISO().slice(0, 7), kanbanFilter: {} } };
+      stageGateLog: [], ribaStageLog: [], complianceItems: [],
+      ui: { collapsed: {}, ganttZoom: "week", calMonth: todayISO().slice(0, 7), kanbanFilter: {}, complianceVenueFilter: "" } };
   }
 
   let state = load();
@@ -798,6 +856,7 @@
     { id: "kanban", label: "Board", icon: ICON.kanban },
     { id: "projects", label: "Projects", icon: ICON.projects },
     { id: "budget", label: "Budget", icon: ICON.budget },
+    { id: "compliance", label: "Compliance", icon: ICON.shield },
     { id: "calendar", label: "Calendar", icon: ICON.calendar },
     { id: "data", label: "Data & Backup", icon: ICON.data },
   ];
@@ -900,6 +959,10 @@
       .sort((a, b) => (b.spend / b.p.budgetAllocated) - (a.spend / a.p.budgetAllocated));
     const wipLoads = wipByOwner();
     const wipOverloaded = wipLoads.filter(w => w.count > WIP_LIMIT);
+    const complianceOverdue = state.complianceItems.filter(i => complianceStatus(i) === "overdue")
+      .sort((a, b) => (complianceNextDue(a) || "").localeCompare(complianceNextDue(b) || ""));
+    const complianceDueSoon = state.complianceItems.filter(i => complianceStatus(i) === "due-soon")
+      .sort((a, b) => (complianceNextDue(a) || "").localeCompare(complianceNextDue(b) || ""));
 
     return `
       <div class="page-head">
@@ -912,9 +975,24 @@
         <div class="stat-tile"><div class="label">Budget alerts</div><div class="value ${budgetAlerts.length ? "accent-bad" : "accent-good"}">${budgetAlerts.length}</div><div class="sub">projects ≥85% of budget</div></div>
       </div>
 
+      ${complianceOverdue.length ? `<div class="banner banner-warn" style="margin-bottom:16px">
+        ${complianceOverdue.map(i => `<div><strong>${escapeHtml(i.type)}</strong> at ${escapeHtml((venueById(i.venueId) || {}).name || "unknown venue")} is overdue (was due ${fmtShort(complianceNextDue(i))}).</div>`).join("")}
+      </div>` : ""}
+
       ${wipOverloaded.length ? `<div class="banner banner-warn" style="margin-bottom:16px">
         ${wipOverloaded.map(w => `<div><strong>${escapeHtml(w.owner)}</strong> has ${w.count} tasks in progress at once (over ${WIP_LIMIT}) — worth finishing something before pulling in more.</div>`).join("")}
       </div>` : ""}
+
+      <div class="card">
+        <div class="card-head"><h2>${ICON.shield} Compliance</h2>${complianceOverdue.length || complianceDueSoon.length ? `<span class="g-count">${complianceOverdue.length + complianceDueSoon.length}</span>` : ""}</div>
+        <div class="card-body pad">${(complianceOverdue.length || complianceDueSoon.length) ? [...complianceOverdue, ...complianceDueSoon].map(i => `
+          <div class="task-row" data-open-compliance="1" style="cursor:pointer">
+            ${complianceStatusChip(i)}
+            <div class="t-main"><div class="t-name">${escapeHtml(i.type)}</div><div class="t-meta">${escapeHtml((venueById(i.venueId) || {}).name || "—")}</div></div>
+            <div class="t-due">${fmtShort(complianceNextDue(i))}</div>
+          </div>
+        `).join("") : emptyState("Nothing overdue or due soon across the statutory compliance register.")}</div>
+      </div>
 
       <div class="card">
         <div class="card-head"><h2>Overdue</h2>${overdue.length ? `<span class="g-count">${overdue.length}</span>` : ""}</div>
@@ -1711,6 +1789,117 @@
     return `<tr><td>${fmtShort(b.dateLogged)}</td><td>${escapeHtml(b.description)}</td><td>${escapeHtml(b.supplier || "—")}</td><td>${p ? escapeHtml(p.name) : "—"}</td><td>${escapeHtml(b.category || "—")}</td><td class="num">${money(b.amount)}</td></tr>`;
   }
 
+  /* ============================== COMPLIANCE PAGE ============================== */
+  function renderCompliancePage() {
+    const venueFilter = state.ui.complianceVenueFilter || "";
+    const editItem = editingRecord("complianceItems");
+    const filtered = venueFilter ? state.complianceItems.filter(i => i.venueId === venueFilter) : state.complianceItems;
+    const sorted = [...filtered].sort((a, b) => {
+      const da = complianceNextDue(a), db = complianceNextDue(b);
+      if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
+      return da.localeCompare(db);
+    });
+    const overdueCount = state.complianceItems.filter(i => complianceStatus(i) === "overdue").length;
+    const dueSoonCount = state.complianceItems.filter(i => complianceStatus(i) === "due-soon").length;
+    const defaultType = editItem ? editItem.type : COMPLIANCE_TYPES[0].label;
+
+    return `
+      <div class="page-head">
+        <div><h1>Compliance</h1><div class="desc">Statutory checks by venue — next due is always calculated from when it was last actually done, never a separate date to fall out of sync.</div></div>
+      </div>
+      <div class="stat-row">
+        <div class="stat-tile"><div class="label">Overdue</div><div class="value ${overdueCount ? "accent-bad" : "accent-good"}">${overdueCount}</div><div class="sub">statutory items</div></div>
+        <div class="stat-tile"><div class="label">Due within ${COMPLIANCE_DUE_SOON_DAYS} days</div><div class="value ${dueSoonCount ? "accent-warn" : ""}">${dueSoonCount}</div></div>
+        <div class="stat-tile"><div class="label">Tracked items</div><div class="value">${state.complianceItems.length}</div><div class="sub">across ${state.venues.length} venues</div></div>
+        <div class="stat-tile"><div class="label">Venue filter</div><div class="value" style="font-size:13px">
+          <select data-compliance-venue-filter style="width:100%;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);border-radius:var(--radius-sm);padding:6px 8px;font-family:inherit">
+            <option value="">All venues</option>
+            ${state.venues.map(v => `<option value="${v.id}" ${venueFilter === v.id ? "selected" : ""}>${escapeHtml(v.name)}</option>`).join("")}
+          </select>
+        </div></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>${ICON.shield} Statutory Compliance Register</h2><span class="g-count">${sorted.length}</span></div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Venue</th><th>Type</th><th>Last completed</th><th>Frequency</th><th>Next due</th><th>Status</th><th>Contractor</th><th>Cert / job ref</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${sorted.map(i => {
+            const venue = venueById(i.venueId); const next = complianceNextDue(i);
+            return `<tr class="${editItem && editItem.id === i.id ? "log-row-editing" : ""}">
+              <td>${venue ? escapeHtml(venue.name) : "—"}</td><td>${escapeHtml(i.type)}</td>
+              <td>${fmtShort(i.lastCompletedDate)}</td><td>${i.frequencyMonths ? i.frequencyMonths + " mo" : "—"}</td>
+              <td>${next ? fmtShort(next) : "—"}</td><td>${complianceStatusChip(i)}</td>
+              <td>${escapeHtml(i.contractor || "—")}</td><td>${escapeHtml(i.certRef || "—")}</td><td>${escapeHtml(i.notes || "—")}</td>
+              <td><div class="row-actions"><button type="button" class="icon-edit" data-edit-complianceitem="${i.id}">${ICON.edit}</button><button class="icon-x" data-delete-complianceitem="${i.id}">${ICON.x}</button></div></td>
+            </tr>`;
+          }).join("") || `<tr><td colspan="10">${emptyState("No compliance items tracked yet — add your first FRA, EICR or LOLER below.")}</td></tr>`}</tbody>
+        </table></div>
+        <div class="card-body pad">
+          <form class="inline-add-form" data-compliance-form data-edit-id="${editItem ? editItem.id : ""}">
+            <select name="venueId">${state.venues.map(v => `<option value="${v.id}" ${(editItem ? editItem.venueId : "") === v.id ? "selected" : ""}>${escapeHtml(v.name)}</option>`).join("")}</select>
+            <select name="type" data-compliance-type-select>${selOpts(COMPLIANCE_TYPES.map(t => t.label), defaultType)}</select>
+            <input type="date" name="lastCompletedDate" value="${editItem ? editItem.lastCompletedDate || "" : ""}" />
+            <input type="number" name="frequencyMonths" min="1" style="width:90px" placeholder="Months" value="${editItem ? editItem.frequencyMonths : complianceDefaultMonths(defaultType)}" />
+            <input type="text" name="contractor" placeholder="Contractor" value="${editItem ? escapeHtml(editItem.contractor || "") : ""}" />
+            <input type="text" name="certRef" placeholder="Cert / job ref" value="${editItem ? escapeHtml(editItem.certRef || "") : ""}" />
+            <input class="grow2" type="text" name="notes" placeholder="Notes" value="${editItem ? escapeHtml(editItem.notes || "") : ""}" />
+            <button class="btn btn-sm" type="submit">${editItem ? ICON.check : ICON.plus} ${editItem ? "Save changes" : "Add item"}</button>
+            ${editItem ? `<button type="button" class="btn btn-sm btn-ghost" data-cancel-edit="complianceItems">Cancel</button>` : ""}
+          </form>
+        </div>
+      </div>
+    `;
+  }
+
+  function bindComplianceEvents(root) {
+    const venueFilterSel = root.querySelector("[data-compliance-venue-filter]");
+    if (venueFilterSel) venueFilterSel.addEventListener("change", () => {
+      state.ui.complianceVenueFilter = venueFilterSel.value; save(); renderPage();
+    });
+    const typeSel = root.querySelector("[data-compliance-type-select]");
+    if (typeSel) typeSel.addEventListener("change", () => {
+      const freqInput = root.querySelector('[data-compliance-form] [name="frequencyMonths"]');
+      if (freqInput) freqInput.value = complianceDefaultMonths(typeSel.value);
+    });
+    const form = root.querySelector("[data-compliance-form]");
+    if (form) form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const editId = form.getAttribute("data-edit-id");
+      const fd = new FormData(form);
+      const record = {
+        venueId: fd.get("venueId"), type: (fd.get("type") || "").toString().trim(),
+        lastCompletedDate: fd.get("lastCompletedDate") || null,
+        frequencyMonths: Number(fd.get("frequencyMonths")) || null,
+        contractor: (fd.get("contractor") || "").toString().trim(),
+        certRef: (fd.get("certRef") || "").toString().trim(),
+        notes: (fd.get("notes") || "").toString().trim(),
+      };
+      if (editId) {
+        const existing = state.complianceItems.find(i => i.id === editId);
+        if (existing) Object.assign(existing, record);
+        editingLogEntry = null;
+        save(); toast("Saved"); renderPage();
+      } else {
+        state.complianceItems.push({ id: uid(), ...record });
+        save(); toast("Added"); renderPage();
+      }
+    });
+    root.querySelectorAll("[data-edit-complianceitem]").forEach(btn => btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      editingLogEntry = { key: "complianceItems", id: btn.getAttribute("data-edit-complianceitem") };
+      renderPage();
+    }));
+    root.querySelectorAll("[data-delete-complianceitem]").forEach(btn => btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const id = btn.getAttribute("data-delete-complianceitem");
+      state.complianceItems = state.complianceItems.filter(i => i.id !== id);
+      if (editingLogEntry && editingLogEntry.key === "complianceItems" && editingLogEntry.id === id) editingLogEntry = null;
+      save(); renderPage();
+    }));
+    root.querySelectorAll('[data-cancel-edit="complianceItems"]').forEach(btn => btn.addEventListener("click", (e) => {
+      e.preventDefault(); editingLogEntry = null; renderPage();
+    }));
+  }
+
   /* ============================== CALENDAR ============================== */
   // Michael's documented reporting cadence — monthly FM dashboard, quarterly SHE pack
   // and ECT Board report. The day-of-month is a placeholder he can change on the
@@ -1754,6 +1943,15 @@
       // in a day cell that also has ordinary tasks due.
       (itemsByDay[g.date] = itemsByDay[g.date] || []).unshift({ kind: "governance", label: g.label });
     });
+    // Same unshift reasoning as governance: a statutory deadline must survive the
+    // slice(0, 3) truncation on a busy day, and it goes first — this is the one
+    // category on this calendar with real regulatory consequence for missing it.
+    state.complianceItems.forEach(i => {
+      const due = complianceNextDue(i);
+      if (!due || due.slice(0, 7) !== state.ui.calMonth) return;
+      const venue = venueById(i.venueId);
+      (itemsByDay[due] = itemsByDay[due] || []).unshift({ kind: "compliance", item: i, venue });
+    });
 
     const dow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const cellsHtml = cells.map(d => {
@@ -1764,6 +1962,10 @@
         ${dayItems.slice(0, 3).map(x => {
           if (x.kind === "governance") {
             return `<div class="cal-chip cal-gov" style="background:var(--accent-soft);color:var(--accent-soft-ink);cursor:default" title="Governance milestone">${escapeHtml(x.label)}</div>`;
+          }
+          if (x.kind === "compliance") {
+            const cls = complianceStatus(x.item) === "overdue" ? "blocked" : complianceStatus(x.item) === "due-soon" ? "inprogress" : "done";
+            return `<div class="cal-chip" data-open-compliance="1" style="background:var(--st-${cls}-soft);color:var(--st-${cls})" title="${escapeHtml((x.venue || {}).name || "")}">${escapeHtml(x.item.type)}</div>`;
           }
           if (x.kind === "task") {
             return `<div class="cal-chip" style="background:var(--st-${STATUS_CLASS[x.task.status]}-soft);color:var(--st-${STATUS_CLASS[x.task.status]})" data-open-task="${x.task.id}">${escapeHtml(x.task.name)}</div>`;
@@ -2218,6 +2420,7 @@
     else if (activePage === "projects") html = renderProjects();
     else if (activePage === "project-detail") html = renderProjectDetail(viewingProjectId);
     else if (activePage === "budget") html = renderBudget();
+    else if (activePage === "compliance") html = renderCompliancePage();
     else if (activePage === "calendar") html = renderCalendar();
     else if (activePage === "data") html = renderData();
     content.innerHTML = `<div class="page active">${html}</div>`;
@@ -2227,8 +2430,10 @@
   function bindPageEvents(root) {
     root.querySelectorAll("[data-open-task]").forEach(el => el.addEventListener("click", (e) => { if (e.target.closest("[data-open-task]") !== el) return; openTaskModal(el.dataset.openTask); }));
     root.querySelectorAll("[data-open-project]").forEach(el => el.addEventListener("click", (e) => { if (e.target.closest("button")) return; viewProject(el.dataset.openProject); }));
+    root.querySelectorAll("[data-open-compliance]").forEach(el => el.addEventListener("click", () => go("compliance")));
     const newProjectBtn = root.querySelector('[data-action="new-project"]'); if (newProjectBtn) newProjectBtn.addEventListener("click", () => openProjectModal(null));
     if (activePage === "project-detail") bindProjectDetailEvents(root);
+    if (activePage === "compliance") bindComplianceEvents(root);
     const logCostBtn = root.querySelector('[data-action="log-cost"]'); if (logCostBtn) logCostBtn.addEventListener("click", () => openCostModal());
     const exportBtn = root.querySelector('[data-action="export"]'); if (exportBtn) exportBtn.addEventListener("click", exportBackup);
     const importInput = root.querySelector("#importFile"); if (importInput) importInput.addEventListener("change", () => { if (importInput.files[0]) importBackup(importInput.files[0]); });
