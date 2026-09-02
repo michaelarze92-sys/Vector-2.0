@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metropolitan Gaming — Estates App Suite: Application Governance Pack</title>
+<style>
+  @media print {
+    body { font-size: 11pt; }
+    .page-break { page-break-before: always; }
+    header { page-break-after: avoid; }
+    table { page-break-inside: avoid; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    color: #1a1a1a; background: #fff;
+    line-height: 1.55; margin: 0; padding: 0;
+    max-width: 900px; margin: 0 auto; padding: 32px 40px 60px;
+  }
+  h1 { font-size: 22pt; color: #152240; margin: 0 0 4px; }
+  h2 { font-size: 15pt; color: #152240; border-bottom: 2px solid #152240; padding-bottom: 4px; margin-top: 36px; }
+  h3 { font-size: 12pt; color: #333; margin-top: 24px; margin-bottom: 8px; }
+  .subtitle { font-size: 13pt; color: #555; margin-bottom: 24px; }
+  .doc-control { background: #f4f6fa; border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px; margin-bottom: 32px; }
+  .doc-control table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  .doc-control td { padding: 4px 8px; border: none; }
+  .doc-control td:first-child { font-weight: bold; width: 160px; color: #555; }
+  table.data { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 10pt; }
+  table.data th { background: #152240; color: #fff; text-align: left; padding: 8px 10px; font-weight: 600; }
+  table.data td { padding: 7px 10px; border-bottom: 1px solid #e0e0e0; vertical-align: top; }
+  table.data tr:nth-child(even) { background: #f8f9fc; }
+  .status-done { color: #0a7a0a; font-weight: 600; }
+  .status-partial { color: #b87a00; font-weight: 600; }
+  .status-gap { color: #c03030; font-weight: 600; }
+  .risk-low { background: #e6f4e6; color: #1a6b1a; padding: 2px 8px; border-radius: 3px; font-weight: 600; font-size: 9pt; }
+  .risk-med { background: #fff3d6; color: #8a6416; padding: 2px 8px; border-radius: 3px; font-weight: 600; font-size: 9pt; }
+  .risk-high { background: #fde0e0; color: #a02020; padding: 2px 8px; border-radius: 3px; font-weight: 600; font-size: 9pt; }
+  .note { background: #f0f4ff; border-left: 3px solid #3366cc; padding: 10px 14px; margin: 12px 0; font-size: 10pt; }
+  ul, ol { margin: 6px 0 12px; padding-left: 24px; }
+  li { margin-bottom: 4px; }
+  .toc { background: #fafbfd; border: 1px solid #e0e0e0; border-radius: 6px; padding: 16px 24px; margin: 20px 0 32px; }
+  .toc ol { margin: 8px 0 0; }
+  .toc li { margin-bottom: 2px; }
+  .toc a { color: #152240; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .arch-diagram { background: #f8f9fc; border: 1px solid #ddd; border-radius: 6px; padding: 20px; text-align: center; margin: 16px 0; font-family: monospace; font-size: 10pt; line-height: 1.8; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>Estates App Suite</h1>
+<p class="subtitle">Application Governance Pack — IT Review & Approval</p>
+
+<div class="doc-control">
+<table>
+  <tr><td>Document owner</td><td>Michael Arze, Property & SHE Manager</td></tr>
+  <tr><td>Version</td><td>1.0 — Initial submission for IT review</td></tr>
+  <tr><td>Date</td><td>2 September 2026</td></tr>
+  <tr><td>Classification</td><td>Internal — Metropolitan Gaming</td></tr>
+  <tr><td>Repository</td><td>github.com/michaelarze92-sys/Vector-2.0 (private — to be confirmed)</td></tr>
+  <tr><td>Live URLs</td><td>michaelarze92-sys.github.io/Vector-2.0/ (Ledger &amp; PM Board)<br>michaelarze92-sys.github.io/MGinspections/ (Inspections)</td></tr>
+</table>
+</div>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#s1">Business Case & Purpose</a></li>
+    <li><a href="#s2">Application Overview</a></li>
+    <li><a href="#s3">Technical Architecture</a></li>
+    <li><a href="#s4">Data Handling & GDPR Statement</a></li>
+    <li><a href="#s5">Security Posture</a></li>
+    <li><a href="#s6">Testing & Quality Assurance</a></li>
+    <li><a href="#s7">Software Development Lifecycle Compliance</a></li>
+    <li><a href="#s8">Release & Change Management Process</a></li>
+    <li><a href="#s9">Known Limitations & Risk Register</a></li>
+    <li><a href="#s10">Support & Maintenance Model</a></li>
+    <li><a href="#s11">Roadmap & Future Considerations</a></li>
+    <li><a href="#s12">Approval & Sign-Off</a></li>
+  </ol>
+</div>
+
+<!-- ===================== SECTION 1 ===================== -->
+<h2 id="s1">1. Business Case & Purpose</h2>
+
+<h3>1.1 Problem Statement</h3>
+<p>The Property & SHE Manager role spans ten venues across the UK and Egypt, managing estates, facilities maintenance (via Dalkia), health & safety compliance (via WorkNest), lease administration (via SharePoint), and capital projects — all tracked across multiple disconnected systems:</p>
+<ul>
+  <li><strong>Aurora CAFM</strong> — jobs, PPMs, reactive maintenance, statutory compliance</li>
+  <li><strong>WorkNest portal</strong> — H&S compliance actions, risk assessments</li>
+  <li><strong>SharePoint</strong> — lease documents (files, not derived action dates)</li>
+  <li><strong>Email / Teams</strong> — day-to-day communications, approvals, decisions</li>
+  <li><strong>Various spreadsheets</strong> — quotes, approvals, weekly reports, flash reports</li>
+</ul>
+<p>No single system provides a consolidated daily management view across all of these, and none supports on-site mobile capture during venue inspections.</p>
+
+<h3>1.2 What the Apps Do</h3>
+<p>The Estates App Suite is a <strong>management layer on top of existing corporate systems</strong> — not a replacement for Aurora, WorkNest, or SharePoint. It provides:</p>
+<ul>
+  <li><strong>Daily triage and chase list</strong> — consolidated view of priorities across all venues</li>
+  <li><strong>On-site inspection capture</strong> — H&S audits, condition surveys, and contractor quality checks, with photo evidence, usable offline in plant rooms and basements with no signal</li>
+  <li><strong>Capital project tracking</strong> — stage-gated project management with RIBA design stages, budget checkpoints, and governance logs</li>
+  <li><strong>Lease notice deadlines</strong> — the derived action dates that SharePoint's document store doesn't calculate</li>
+  <li><strong>Board SHE report assembly</strong> — future capability to generate the quarterly ECT Board report from aggregated data</li>
+</ul>
+
+<h3>1.3 What the Apps Do NOT Do</h3>
+<ul>
+  <li>They do not replace Aurora CAFM for job logging, PPM scheduling, or statutory compliance tracking</li>
+  <li>They do not replace WorkNest for formal H&S compliance management</li>
+  <li>They do not store or process customer data, financial transactions, or gaming data</li>
+  <li>They do not connect to any Metropolitan Gaming internal network, server, or database</li>
+  <li>They do not require any credentials, API keys, or authentication</li>
+</ul>
+
+<!-- ===================== SECTION 2 ===================== -->
+<h2 id="s2" class="page-break">2. Application Overview</h2>
+
+<table class="data">
+  <tr>
+    <th>Application</th>
+    <th>Purpose</th>
+    <th>Primary User</th>
+    <th>Status</th>
+  </tr>
+  <tr>
+    <td><strong>Estates Ledger</strong></td>
+    <td>Issue/risk register across all venues — RAG severity, site profiles, compliance tracking, email audit trail, dashboards</td>
+    <td>Property & SHE Manager</td>
+    <td>Live</td>
+  </tr>
+  <tr>
+    <td><strong>Project & Compliance Board</strong></td>
+    <td>Capital/lifecycle project management — Gantt, Kanban, stage gates, RIBA stages, budget tracking, tender register, governance logs</td>
+    <td>Property & SHE Manager</td>
+    <td>Live</td>
+  </tr>
+  <tr>
+    <td><strong>Inspections</strong></td>
+    <td>On-site venue inspections — condition surveys (1-5 grade), H&S audits (pass/fail), contractor quality checks. Camera-first, offline-capable PWA</td>
+    <td>Property & SHE Manager</td>
+    <td>Live</td>
+  </tr>
+</table>
+
+<h3>2.1 Data Flow Between Apps</h3>
+<p>Each app has its own isolated storage namespace. Data crosses between apps only via user-initiated file export/import:</p>
+
+<table class="data">
+  <tr><th>From</th><th>To</th><th>Mechanism</th></tr>
+  <tr><td>Inspections</td><td>Ledger</td><td>Findings CSV export (ISSUES block) &rarr; Ledger "Merge in data" (additive, deduplicated)</td></tr>
+  <tr><td>Ledger</td><td>PM Board</td><td>"Promote to project" (creates a project from an issue)</td></tr>
+  <tr><td>PM Board</td><td>Ledger</td><td>PM Board backup JSON &rarr; Ledger Reports import</td></tr>
+</table>
+
+<!-- ===================== SECTION 3 ===================== -->
+<h2 id="s3" class="page-break">3. Technical Architecture</h2>
+
+<h3>3.1 Architecture Summary</h3>
+
+<div class="arch-diagram">
+<pre>
+  +------------------+     +------------------+     +------------------+
+  |  Estates Ledger  |     |    PM Board      |     |   Inspections    |
+  |  (index.html)    |     | (estate-pm.html) |     |(inspection.html) |
+  +--------+---------+     +--------+---------+     +--------+---------+
+           |                        |                        |
+     localStorage            localStorage              localStorage
+     + IndexedDB             + IndexedDB               + IndexedDB
+    (estatesLedger.*)       (metroEstatesPM.*)        (metroInspect.*)
+           |                        |                        |
+  +--------+---------+     +--------+---------+     +--------+---------+
+  |   Service Worker |     |  Service Worker  |     |  Service Worker  |
+  |     (sw.js)      |     |    (sw.js)       |     | (inspect-sw.js)  |
+  +------------------+     +------------------+     +------------------+
+           |                        |                        |
+           +----------+-------------+------------+-----------+
+                      |                          |
+              GitHub Pages (HTTPS)        User's Browser
+              Static file hosting         (all processing)
+              No server-side code         No network required
+                                          after first load
+</pre>
+</div>
+
+<h3>3.2 Key Architectural Decisions</h3>
+
+<table class="data">
+  <tr><th>Decision</th><th>Rationale</th></tr>
+  <tr>
+    <td>Single self-contained HTML files</td>
+    <td>Instant deployment via GitHub Pages. No build server, no dependency management in production. Can be shared as a single file.</td>
+  </tr>
+  <tr>
+    <td>No backend / no database</td>
+    <td>Eliminates server infrastructure, hosting costs, database administration, and the entire class of server-side security vulnerabilities. Zero attack surface.</td>
+  </tr>
+  <tr>
+    <td>No external network requests</td>
+    <td>All assets (fonts, icons, images) are inlined as base64 or SVG. The apps make zero HTTP requests after initial page load. Critical for offline use in venue plant rooms.</td>
+  </tr>
+  <tr>
+    <td>localStorage + IndexedDB for persistence</td>
+    <td>localStorage for structured data (~5MB). IndexedDB for binary data (photos, attachments) which would exceed localStorage quotas. Both are same-origin isolated.</td>
+  </tr>
+  <tr>
+    <td>PWA with service workers</td>
+    <td>Enables "Add to Home Screen" installation, offline access, and background cache updates. Each app has its own service worker and manifest for independent installation.</td>
+  </tr>
+  <tr>
+    <td>No framework / no bundler</td>
+    <td>Vanilla HTML/CSS/JS only. No React, Vue, Angular, webpack, or npm runtime dependencies. Reduces supply-chain risk to zero and eliminates dependency vulnerabilities entirely.</td>
+  </tr>
+</table>
+
+<h3>3.3 Technology Stack</h3>
+
+<table class="data">
+  <tr><th>Layer</th><th>Technology</th><th>Version / Detail</th></tr>
+  <tr><td>Frontend</td><td>Vanilla HTML5, CSS3, JavaScript (ES5)</td><td>No framework, no transpilation</td></tr>
+  <tr><td>Storage</td><td>Web Storage API (localStorage) + IndexedDB</td><td>Browser-native, same-origin isolated</td></tr>
+  <tr><td>Offline</td><td>Service Workers (Cache API)</td><td>Stale-while-revalidate strategy</td></tr>
+  <tr><td>Hosting</td><td>GitHub Pages</td><td>Static HTTPS hosting, automatic TLS via Let's Encrypt</td></tr>
+  <tr><td>Source control</td><td>Git / GitHub</td><td>github.com/michaelarze92-sys/Vector-2.0</td></tr>
+  <tr><td>Build (Ledger only)</td><td>Python 3 (build.py)</td><td>Template + base64 asset inlining</td></tr>
+  <tr><td>Testing</td><td>Playwright (Chromium)</td><td>16 automated test suites, headless browser</td></tr>
+  <tr><td>Runtime dependencies</td><td>None</td><td>Zero npm/CDN runtime dependencies</td></tr>
+</table>
+
+<!-- ===================== SECTION 4 ===================== -->
+<h2 id="s4" class="page-break">4. Data Handling & GDPR Statement</h2>
+
+<h3>4.1 Data Processing Summary</h3>
+
+<div class="note">
+  <strong>Key principle:</strong> All data is processed and stored locally on the user's device. No personal data is transmitted to, collected by, or stored on any external server. The applications have no backend, no analytics, no cookies (from the application), and no third-party data sharing.
+</div>
+
+<h3>4.2 Categories of Data Held</h3>
+
+<table class="data">
+  <tr><th>Data Category</th><th>Examples</th><th>Personal Data?</th><th>Storage Location</th></tr>
+  <tr>
+    <td>Venue/property information</td>
+    <td>Venue names, addresses, sq footage, landlord names, contractor assignments</td>
+    <td>No (business premises data)</td>
+    <td>Browser localStorage on user's device only</td>
+  </tr>
+  <tr>
+    <td>Inspection findings</td>
+    <td>Building condition grades, H&S audit results, defect descriptions, photos</td>
+    <td>No (property condition data)</td>
+    <td>Browser localStorage + IndexedDB on user's device only</td>
+  </tr>
+  <tr>
+    <td>Issue/risk records</td>
+    <td>Maintenance issues, compliance gaps, RAG severity ratings</td>
+    <td>No (operational data)</td>
+    <td>Browser localStorage on user's device only</td>
+  </tr>
+  <tr>
+    <td>Project records</td>
+    <td>Project tasks, budgets, tender records, meeting notes</td>
+    <td>No (project management data)</td>
+    <td>Browser localStorage on user's device only</td>
+  </tr>
+  <tr>
+    <td>Individual names</td>
+    <td>Inspector name, action owner, contractor contact, meeting attendees</td>
+    <td><strong>Yes — limited personal data</strong></td>
+    <td>Browser localStorage on user's device only. Never transmitted externally.</td>
+  </tr>
+</table>
+
+<h3>4.3 GDPR Assessment</h3>
+<ul>
+  <li><strong>Data controller:</strong> Metropolitan Gaming (the apps are tools used by an employee in the course of their duties)</li>
+  <li><strong>Data processor:</strong> None. No third party processes any data from these apps.</li>
+  <li><strong>Lawful basis:</strong> Legitimate interest (property management and H&S compliance record-keeping)</li>
+  <li><strong>Data minimisation:</strong> Only operationally necessary data is captured. No customer, gaming, or financial transaction data.</li>
+  <li><strong>Data portability:</strong> All apps support full JSON backup export. Inspection findings export as CSV.</li>
+  <li><strong>Right to erasure:</strong> Clearing browser data for the relevant domain removes all data immediately.</li>
+  <li><strong>International transfer:</strong> No data leaves the user's device. GitHub Pages serves the application code (empty templates) only — no user data is uploaded.</li>
+  <li><strong>DPIA required?</strong> Unlikely, given: single user, no systematic monitoring of individuals, no large-scale processing, no sensitive personal data. Recommend formal confirmation from DPO.</li>
+</ul>
+
+<h3>4.4 Data Retention & Backup</h3>
+<ul>
+  <li>Data persists until the user clears browser storage or uninstalls the PWA</li>
+  <li>All three apps include backup/restore functionality (JSON export/import)</li>
+  <li>The Ledger has an automated backup reminder (configurable, defaults to weekly)</li>
+  <li>Backup files are the user's responsibility to store securely — they may contain names of individuals</li>
+</ul>
+
+<!-- ===================== SECTION 5 ===================== -->
+<h2 id="s5" class="page-break">5. Security Posture</h2>
+
+<h3>5.1 Attack Surface Analysis</h3>
+
+<div class="note">
+  <strong>Summary:</strong> The apps have effectively zero network attack surface. There is no backend server, no API endpoint, no database, no authentication system, no session management, and no data transmission to attack.
+</div>
+
+<table class="data">
+  <tr><th>OWASP Top 10 Category</th><th>Applicable?</th><th>Assessment</th></tr>
+  <tr><td>A01: Broken Access Control</td><td>No</td><td>No access control exists — single-user, local-only app. No multi-user, no roles.</td></tr>
+  <tr><td>A02: Cryptographic Failures</td><td>No</td><td>No cryptographic operations. HTTPS provided by GitHub Pages (TLS via Let's Encrypt).</td></tr>
+  <tr><td>A03: Injection</td><td>Minimal</td><td>No SQL, no server-side processing. DOM manipulation uses textContent where possible. User input is rendered into the user's own browser only.</td></tr>
+  <tr><td>A04: Insecure Design</td><td>No</td><td>No security-critical design decisions — the app is a personal productivity tool.</td></tr>
+  <tr><td>A05: Security Misconfiguration</td><td>Low</td><td>GitHub Pages provides default secure headers. No server to misconfigure.</td></tr>
+  <tr><td>A06: Vulnerable Components</td><td>No</td><td>Zero runtime dependencies. No npm packages, no CDN resources, no third-party libraries.</td></tr>
+  <tr><td>A07: Auth Failures</td><td>No</td><td>No authentication system exists.</td></tr>
+  <tr><td>A08: Data Integrity Failures</td><td>Low</td><td>Service worker updates are user-initiated (toast prompt). No CI/CD pipeline to compromise.</td></tr>
+  <tr><td>A09: Logging & Monitoring</td><td>N/A</td><td>No server-side logging. Browser console only.</td></tr>
+  <tr><td>A10: SSRF</td><td>No</td><td>No server-side requests of any kind.</td></tr>
+</table>
+
+<h3>5.2 Hosting Security (GitHub Pages)</h3>
+<ul>
+  <li>HTTPS enforced (TLS 1.2+, certificate managed by GitHub via Let's Encrypt)</li>
+  <li>No custom server configuration possible — static files only</li>
+  <li>GitHub's infrastructure handles DDoS protection and uptime</li>
+  <li>Repository access controlled via GitHub account (currently public — see Section 9)</li>
+</ul>
+
+<h3>5.3 Supply Chain Security</h3>
+<ul>
+  <li><strong>Zero runtime dependencies.</strong> No npm packages are loaded at runtime. No CDN resources.</li>
+  <li>The only development dependency is Playwright (for automated testing) — never shipped to production</li>
+  <li>All assets (fonts, icons, images) are inlined into the HTML at build time — no external fetches</li>
+  <li>No third-party scripts, tracking pixels, analytics, or advertising</li>
+</ul>
+
+<h3>5.4 Data at Rest</h3>
+<ul>
+  <li>Browser localStorage and IndexedDB are same-origin isolated — only pages served from the exact same domain and path can access the data</li>
+  <li>Data is not encrypted at rest (browser storage is not encrypted by default). Physical device security is the user's responsibility.</li>
+  <li>Recommend: device-level encryption (BitLocker / FileVault / phone encryption) as standard corporate device policy</li>
+</ul>
+
+<!-- ===================== SECTION 6 ===================== -->
+<h2 id="s6" class="page-break">6. Testing & Quality Assurance</h2>
+
+<h3>6.1 Automated Test Suite</h3>
+
+<p>16 automated end-to-end test suites run against headless Chromium via Playwright. Tests drive the actual application UI — filling forms, clicking buttons, navigating pages, and asserting visible output — not just unit-testing isolated functions.</p>
+
+<table class="data">
+  <tr><th>Suite</th><th>Test File</th><th>Coverage Area</th></tr>
+  <tr><td rowspan="11">Ledger<br>(11 files)</td><td>test_app.js</td><td>Core functionality, issue CRUD, filtering, dashboards</td></tr>
+  <tr><td>test_calendar.js</td><td>Calendar view, governance cadence overlay</td></tr>
+  <tr><td>test_camera.js</td><td>Photo capture and attachment to issues</td></tr>
+  <tr><td>test_hybrid.js</td><td>Cross-feature interactions</td></tr>
+  <tr><td>test_hybrid_sites.js</td><td>Multi-site data integrity</td></tr>
+  <tr><td>test_import.js</td><td>Backup import, merge behaviour, ID collision handling</td></tr>
+  <tr><td>test_mobile.js</td><td>Mobile viewport, touch interactions</td></tr>
+  <tr><td>test_promote.js</td><td>Issue-to-project promotion (Ledger &rarr; PM Board)</td></tr>
+  <tr><td>test_pwa.js</td><td>Service worker registration, offline caching</td></tr>
+  <tr><td>test_site_image.js</td><td>Site profile images</td></tr>
+  <tr><td>test_update_prompt.js</td><td>PWA update notification flow</td></tr>
+  <tr><td rowspan="5">PM Board<br>(5 files)</td><td>test_agile_governance.js</td><td>Kanban, WIP limits, governance calendar</td></tr>
+  <tr><td>test_csv_import.js</td><td>CSV task import with column mapping</td></tr>
+  <tr><td>test_log_editing.js</td><td>All 9 project logs — add, edit, delete, persist</td></tr>
+  <tr><td>test_pwa_update.js</td><td>Service worker update, content change detection</td></tr>
+  <tr><td>test_stage_logs.js</td><td>Stage gate and RIBA design stage history</td></tr>
+</table>
+
+<p>Additionally, the Ledger test suite includes <strong>cross-application integration tests</strong>:</p>
+<table class="data">
+  <tr><th>Test File</th><th>What It Verifies</th></tr>
+  <tr><td>test_inspection.js</td><td>37 assertions: full inspection workflow, CSV export format, Ledger merge import, deduplication on re-inspection, backup/restore round-trip, foreign-file rejection</td></tr>
+  <tr><td>test_paste_email.js</td><td>Email-to-task parsing heuristics</td></tr>
+  <tr><td>test_walk.js</td><td>Site walk multi-issue capture mode</td></tr>
+  <tr><td>+ 10 more</td><td>Backup scheduling, export-all, incidents/RIDDOR, lease module, merge import, storage safety, reminders, build integrity, Vector assistant, today view</td></tr>
+</table>
+
+<h3>6.2 Test Execution</h3>
+<pre style="background:#f4f6fa; padding:12px; border-radius:4px; font-size:10pt;">
+# Ledger suite (builds first, then tests)
+python3 src/ledger/build.py && bash src/ledger/tests/run-all.sh
+
+# PM Board suite
+bash standalone/tests/run-all.sh
+
+# All 27 test files pass as of 2 September 2026
+</pre>
+
+<h3>6.3 User Acceptance Testing</h3>
+<p>The application owner (Property & SHE Manager) has been the sole user and tester throughout development, operating the apps in a live operational context including on-site venue inspections. Formal UAT sign-off is requested as part of this governance approval (see Section 12).</p>
+
+<!-- ===================== SECTION 7 ===================== -->
+<h2 id="s7" class="page-break">7. Software Development Lifecycle Compliance</h2>
+
+<table class="data">
+  <tr><th>SDLC Phase</th><th>Status</th><th>Evidence</th></tr>
+  <tr>
+    <td>Requirements Gathering</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>Iterative requirements captured in CLAUDE.md files and development conversation history. Requirements evolved through active use.</td>
+  </tr>
+  <tr>
+    <td>Architecture & Design</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>Four CLAUDE.md files (7,000+ words combined) document architecture decisions, data models, known gotchas, and design rationale. More detailed than typical internal projects.</td>
+  </tr>
+  <tr>
+    <td>Implementation</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>Three working applications, 18+ commits with descriptive messages in git history.</td>
+  </tr>
+  <tr>
+    <td>Version Control</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>Git repository on GitHub. Feature branches with pull requests merged to main. No direct commits to production branch.</td>
+  </tr>
+  <tr>
+    <td>Automated Testing</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>27 Playwright test files, 100+ assertions, including cross-app integration tests. All passing.</td>
+  </tr>
+  <tr>
+    <td>Security Assessment</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>OWASP Top 10 review in Section 5. Zero attack surface due to no-backend architecture.</td>
+  </tr>
+  <tr>
+    <td>Data Protection Review</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>GDPR assessment in Section 4. Recommend DPO confirmation that DPIA is not required.</td>
+  </tr>
+  <tr>
+    <td>Technical Documentation</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>CLAUDE.md (architecture), INSPECTION.md (inspections contract), this governance pack.</td>
+  </tr>
+  <tr>
+    <td>User Acceptance Testing</td>
+    <td><span class="status-partial">Informal</span></td>
+    <td>Used operationally by the application owner. Formal UAT sign-off requested in Section 12.</td>
+  </tr>
+  <tr>
+    <td>Accessibility (WCAG)</td>
+    <td><span class="status-partial">Partial</span></td>
+    <td>Semantic HTML, ARIA attributes on interactive elements, keyboard-navigable. No formal WCAG audit conducted.</td>
+  </tr>
+  <tr>
+    <td>Change Management Process</td>
+    <td><span class="status-done">Complete</span></td>
+    <td>Documented in Section 8.</td>
+  </tr>
+  <tr>
+    <td>Browser Compatibility</td>
+    <td><span class="status-partial">Partial</span></td>
+    <td>Tested on Chromium (automated), Safari iOS (manual, by user). No formal matrix.</td>
+  </tr>
+</table>
+
+<!-- ===================== SECTION 8 ===================== -->
+<h2 id="s8">8. Release & Change Management Process</h2>
+
+<h3>8.1 Development Workflow</h3>
+<ol>
+  <li>Feature work is developed on a <strong>dedicated branch</strong> (never directly on main)</li>
+  <li>Changes are committed with descriptive commit messages explaining the "why"</li>
+  <li>A <strong>pull request</strong> is created for review before merging</li>
+  <li>Automated tests are run and must pass before merge</li>
+  <li>PR is merged to <strong>main</strong> branch</li>
+  <li>GitHub Pages automatically deploys from main within 2-3 minutes</li>
+  <li>PWA service workers detect the update and prompt the user via an in-app toast notification — the update is <strong>not applied automatically</strong> to avoid interrupting in-progress work</li>
+</ol>
+
+<h3>8.2 Rollback Procedure</h3>
+<p>Git revert on main branch, push, GitHub Pages redeploys. Full rollback achievable within 5 minutes. All previous versions recoverable from git history.</p>
+
+<h3>8.3 Environment Summary</h3>
+<table class="data">
+  <tr><th>Environment</th><th>Purpose</th><th>URL</th></tr>
+  <tr><td>Development</td><td>Feature branches, local testing</td><td>Local file:// or localhost</td></tr>
+  <tr><td>Production</td><td>Live apps via GitHub Pages</td><td>michaelarze92-sys.github.io/*</td></tr>
+</table>
+<p class="note">There is no staging environment. Given the single-user nature and zero-backend architecture, the risk of a bad deploy is limited to one user's UI experience, recoverable by rollback or browser cache clear. A staging environment can be added if the user base expands.</p>
+
+<!-- ===================== SECTION 9 ===================== -->
+<h2 id="s9" class="page-break">9. Known Limitations & Risk Register</h2>
+
+<table class="data">
+  <tr><th>Risk / Limitation</th><th>Severity</th><th>Mitigation</th></tr>
+  <tr>
+    <td><strong>Data loss if browser storage is cleared</strong><br>localStorage and IndexedDB are cleared by "Clear browsing data" or uninstalling the PWA</td>
+    <td><span class="risk-high">High</span></td>
+    <td>Automated backup reminders (weekly). Manual backup/restore to JSON file. User training to maintain regular backups.</td>
+  </tr>
+  <tr>
+    <td><strong>Single-device, single-browser</strong><br>Data does not sync across devices or browsers</td>
+    <td><span class="risk-med">Medium</span></td>
+    <td>Backup/restore enables manual transfer. Accepted limitation of no-backend architecture. Cloud sync is on the roadmap (Section 11) pending IT approval for backend infrastructure.</td>
+  </tr>
+  <tr>
+    <td><strong>Repository is currently public</strong><br>App source code (including venue names and checklist templates) is visible on GitHub</td>
+    <td><span class="risk-med">Medium</span></td>
+    <td>No user data is in the repository (only empty templates). Operational details (venue names, contact structures) are visible. Recommend: migrate to private repository with GitHub Pro ($4/month) or GitHub Enterprise if available.</td>
+  </tr>
+  <tr>
+    <td><strong>No formal accessibility audit</strong><br>WCAG compliance has not been formally tested</td>
+    <td><span class="risk-low">Low</span></td>
+    <td>Single-user tool. Semantic HTML and ARIA attributes used. Formal audit recommended if user base expands.</td>
+  </tr>
+  <tr>
+    <td><strong>Browser storage quota</strong><br>localStorage is limited to ~5MB per origin; IndexedDB has higher but browser-dependent limits</td>
+    <td><span class="risk-low">Low</span></td>
+    <td>Photos stored in IndexedDB (not localStorage). Text data unlikely to approach 5MB for a single-user tool. Storage safety patterns prevent data corruption on quota errors.</td>
+  </tr>
+  <tr>
+    <td><strong>No multi-user support</strong><br>The apps are designed for a single user</td>
+    <td><span class="risk-low">Low</span></td>
+    <td>Accepted design constraint. Multi-user would require a backend (see Section 11).</td>
+  </tr>
+</table>
+
+<!-- ===================== SECTION 10 ===================== -->
+<h2 id="s10">10. Support & Maintenance Model</h2>
+
+<table class="data">
+  <tr><th>Aspect</th><th>Current Model</th></tr>
+  <tr><td>Application owner</td><td>Michael Arze, Property & SHE Manager</td></tr>
+  <tr><td>Development</td><td>AI-assisted development using Claude Code (Anthropic). All code reviewed and tested before deployment.</td></tr>
+  <tr><td>Bug reporting</td><td>Via GitHub Issues on the repository, or direct to application owner</td></tr>
+  <tr><td>Hosting</td><td>GitHub Pages (GitHub's SLA applies — 99.9% uptime)</td></tr>
+  <tr><td>Hosting cost</td><td>Free (GitHub Pages for public repos). $4/month if migrated to private repo.</td></tr>
+  <tr><td>Infrastructure dependencies</td><td>None beyond GitHub Pages. No servers, databases, or third-party services to maintain.</td></tr>
+  <tr><td>Update frequency</td><td>As needed. No scheduled release cadence — features deployed when ready and tested.</td></tr>
+  <tr><td>Incident response</td><td>Rollback via git revert (&lt;5 minutes). No data-loss incident possible from a code deploy (data is in the user's browser, not the deployment).</td></tr>
+</table>
+
+<!-- ===================== SECTION 11 ===================== -->
+<h2 id="s11" class="page-break">11. Roadmap & Future Considerations</h2>
+
+<h3>11.1 Planned Enhancements (no architectural change)</h3>
+<ul>
+  <li>Board SHE report generation from Ledger data</li>
+  <li>CER (Capital Expenditure Request) template generation from issues</li>
+  <li>Scope of works generation from inspection findings</li>
+  <li>Quote/approval tracking within the Ledger</li>
+</ul>
+
+<h3>11.2 Future Capabilities Requiring IT Discussion</h3>
+<table class="data">
+  <tr><th>Capability</th><th>Architectural Impact</th><th>IT Involvement Needed</th></tr>
+  <tr>
+    <td>Cross-device sync</td>
+    <td>Requires a backend data store (database, authentication, API)</td>
+    <td>Yes — hosting, security review, data protection, authentication</td>
+  </tr>
+  <tr>
+    <td>Aurora CAFM data import</td>
+    <td>None — CSV file import, processed client-side only</td>
+    <td>Minimal — confirm Aurora export is permitted for this use</td>
+  </tr>
+  <tr>
+    <td>WorkNest data import</td>
+    <td>None — CSV/Excel file import, processed client-side only</td>
+    <td>Minimal — confirm WorkNest export is permitted for this use</td>
+  </tr>
+  <tr>
+    <td>Agentic AI integration</td>
+    <td>Requires API connectivity, potentially a backend proxy</td>
+    <td>Yes — API costs, data handling review, security assessment</td>
+  </tr>
+  <tr>
+    <td>Multi-user access</td>
+    <td>Requires backend, authentication, role-based access control</td>
+    <td>Yes — full SDLC for a hosted application</td>
+  </tr>
+  <tr>
+    <td>Email/Teams integration</td>
+    <td>Requires Azure AD app registration, Microsoft Graph API</td>
+    <td>Yes — admin consent, API permissions, security review</td>
+  </tr>
+</table>
+
+<p class="note"><strong>Note:</strong> The current client-side architecture is deliberately chosen for Phase 1 to avoid IT infrastructure dependencies while proving the tool's value. Any capability requiring a backend would be a Phase 2 discussion, following a separate SDLC process with full IT involvement from the outset.</p>
+
+<!-- ===================== SECTION 12 ===================== -->
+<h2 id="s12" class="page-break">12. Approval & Sign-Off</h2>
+
+<p>This document requests IT review and approval for the Estates App Suite to be recognised as an approved internal tool. The following sign-offs are requested:</p>
+
+<table class="data">
+  <tr><th>Approval</th><th>Approver</th><th>Signature / Date</th></tr>
+  <tr>
+    <td>Application Owner — confirms accuracy of this document and accepts ownership</td>
+    <td>Michael Arze<br>Property & SHE Manager</td>
+    <td style="min-width:180px"></td>
+  </tr>
+  <tr>
+    <td>IT Review — confirms technical architecture is acceptable and no infrastructure risk</td>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Information Security — confirms security posture is acceptable for an internal single-user tool</td>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Data Protection — confirms GDPR assessment is adequate (or that a full DPIA is required)</td>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>User Acceptance Testing — confirms the applications function as described</td>
+    <td>Michael Arze<br>Property & SHE Manager</td>
+    <td></td>
+  </tr>
+</table>
+
+<h3>12.1 Conditions & Recommendations</h3>
+<p>The following actions are recommended as conditions of approval or as follow-up items:</p>
+<ol>
+  <li><strong>Repository visibility:</strong> Migrate to a private GitHub repository to prevent public access to operational details (venue names, checklist content). Requires GitHub Pro ($4/month) or use of MG's GitHub Enterprise if available.</li>
+  <li><strong>DPO confirmation:</strong> Confirm with the Data Protection Officer that a full DPIA is not required given the local-only, single-user data processing model.</li>
+  <li><strong>Device security:</strong> Confirm that the devices used to access these apps have device-level encryption enabled (standard corporate device policy).</li>
+  <li><strong>Backup policy:</strong> Formalise a weekly backup procedure — the app prompts for this but compliance is the user's responsibility.</li>
+  <li><strong>Browser compatibility:</strong> Complete formal testing on corporate-approved browsers and devices.</li>
+</ol>
+
+<footer>
+  <p>Metropolitan Gaming — Estates App Suite — Application Governance Pack v1.0 — 2 September 2026</p>
+  <p>Prepared by Michael Arze, Property & SHE Manager, with AI-assisted development documentation.</p>
+</footer>
+
+</body>
+</html>
